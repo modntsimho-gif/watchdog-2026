@@ -168,7 +168,7 @@ export default function Home() {
       </div>
 
       {/* 3. 결과 리스트 영역 */}
-      <div className="w-full max-w-6xl p-4 sm:p-10 pb-32">
+      <div className="w-full max-w-6xl p-4 sm:p-10 pb-10">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
             📊 재산 순위 <span className="text-slate-400 text-lg font-normal">(Top {filteredMembers.length})</span>
@@ -207,7 +207,6 @@ export default function Home() {
                         
                         <div>
                           <h3 className="text-xl font-bold flex items-center gap-2 leading-none tracking-tight">
-                            {/* 👇 여기가 변경되었습니다! */}
                             <span className="text-slate-500 text-sm font-normal bg-slate-100 px-2 py-0.5 rounded-md">
                               {index + 1}위
                             </span>
@@ -269,6 +268,13 @@ export default function Home() {
           ⬇️
         </button>
       </div>
+
+      {/* 5. 👇 여기에 이름을 추가했습니다! */}
+      <footer className="w-full text-center border-t border-slate-200 py-8 mt-auto bg-slate-100">
+        <p className="text-slate-500 text-sm">
+          made by <strong className="text-blue-600">최임호</strong>
+        </p>
+      </footer>
 
     </main>
   );
