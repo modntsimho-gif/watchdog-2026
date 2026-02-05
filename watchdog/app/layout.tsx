@@ -3,6 +3,9 @@ import "./globals.css";
 
 // 🔥 여기가 검색엔진에 뜨는 정보입니다.
 export const metadata: Metadata = {
+  // 1. 기본 사이트 주소 (이미지 경로를 찾기 위해 필요)
+  metadataBase: new URL("https://ni-eolma.com"), 
+
   title: "대한민국 국회의원 너 얼마있어? - WatchDog",
   description: "국회의원 재산 순위, 부동산, 자동차, 현금, 부채 분석. 내 지역구 의원의 재산을 확인해보세요.",
   icons: {
@@ -12,10 +15,26 @@ export const metadata: Metadata = {
     title: "국회의원 너 얼마있어? (WatchDog)",
     description: "느그 서장... 아니 의원님 재산 얼마야? 국회의원 재산 전수 조사 데이터.",
     url: "https://ni-eolma.com",
+    images: [
+      {
+        url: "/og-image.png", // public 폴더에 넣은 이미지 이름
+        width: 1200,
+        height: 630,
+      },
+    ],    
     siteName: "WatchDog",
     locale: "ko_KR",
     type: "website",
   },
+
+  // 3. 트위터/X용 설정 (선택사항이지만 추천)
+  twitter: {
+    card: "summary_large_image",
+    title: "WatchDog - 국회의원 재산 감시",
+    description: "느그 서장... 아니 의원님 재산 얼마야? 국회의원 재산 전수 조사 데이터.",
+    images: ["/og-image.png"],
+  },
+
   keywords: ["국회의원 재산", "국회의원 순위", "정치인 재산", "박덕흠", "안철수", "재산공개"],
 
   verification: {
