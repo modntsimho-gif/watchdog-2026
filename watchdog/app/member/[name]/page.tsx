@@ -2,9 +2,13 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
+// ✅ 공식 라이브러리 임포트
+import { DiscussionEmbed } from "disqus-react";
 
-// ✅ 설정: Disqus Shortname
+// ✅ 선생님의 Shortname
 const DISQUS_SHORTNAME = "ni-eolma"; 
+// ✅ 선생님의 실제 도메인
+const BASE_URL = "https://www.ni-eolma.com";
 
 // --------------------
 // 1. 타입 정의
@@ -172,43 +176,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     fetchData();
   }, [decodedName]);
 
-  // 🔥 [핵심 수정] Disqus 로직: 모달 열릴 때마다 강제 리셋
-  useEffect(() => {
-    if (showComments && member) {
-      
-      // 약간의 지연을 줘서 모달이 완전히 그려진 후 실행 (안정성 확보)
-      const timer = setTimeout(() => {
-        // @ts-ignore
-        if (window.DISQUS) {
-          // 이미 로드된 경우: 리셋 명령
-          // @ts-ignore
-          window.DISQUS.reset({
-            reload: true,
-            config: function (this: any) {
-              this.page.identifier = member.name;
-              this.page.url = window.location.href;
-            },
-          });
-        } else {
-          // 처음인 경우: 스크립트 삽입
-          // @ts-ignore
-          window.disqus_config = function (this: any) {
-            this.page.url = window.location.href;
-            this.page.identifier = member.name;
-          };
-          
-          const d = document;
-          const s = d.createElement("script");
-          s.src = `https://${DISQUS_SHORTNAME}.disqus.com/embed.js`;
-          s.setAttribute("data-timestamp", new Date().toString());
-          (d.head || d.body).appendChild(s);
-        }
-      }, 100); // 0.1초 딜레이
-
-      return () => clearTimeout(timer);
-    }
-  }, [showComments, member]);
-
   // 모달 스크롤 방지
   useEffect(() => {
     if (showComments) document.body.style.overflow = "hidden";
@@ -245,7 +212,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
   return (
     <main className="min-h-screen bg-slate-50 pb-20">
       
-      {/* 1. 상단 프로필 (Sticky Header) - 안전한 색상 사용 */}
+      {/* 1. 상단 프로필 */}
       <div className="bg-[rgba(255,255,255,0.95)] backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 py-3">
           
@@ -294,8 +261,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-8">
-        
-        {/* 2. 자산 요약 대시보드 - 안전한 색상 사용 */}
+        {/* 자산 요약 및 리스트 (기존과 동일) */}
         <div className="grid grid-cols-2 gap-3">
           <SummaryCard 
             title="🏢 부동산" 
@@ -340,7 +306,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           />
         </div>
 
-        {/* 3. 상세 리스트 섹션 */}
         {grouped.realEstate.length > 0 && (
           <Section id="section-realestate" title="🏢 부동산 (토지/건물)" count={grouped.realEstate.length} total={getGroupTotal(grouped.realEstate)} formatMoney={formatMoney}>
             {grouped.realEstate.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
@@ -373,23 +338,20 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 
       </div>
 
-      {/* 🔥 댓글 모달 (안전한 RGBA 배경색) */}
+      {/* 🔥 댓글 모달 (공식 라이브러리 사용) */}
       <div 
         className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-opacity duration-200 ${
           showComments ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
         }`}
       >
-        {/* 배경 */}
         <div 
           className="absolute inset-0 bg-[rgba(15,23,42,0.6)] backdrop-blur-sm"
           onClick={() => setShowComments(false)}
         />
         
-        {/* 모달 컨텐츠 */}
         <div className={`relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] transition-transform duration-200 ${
           showComments ? "scale-100" : "scale-95"
         }`}>
-          {/* 헤더 */}
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
               🗣️ {member.name} 의원 토론장
@@ -402,14 +364,20 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             </button>
           </div>
           
-          {/* Disqus 영역 */}
-          <div className="p-6 overflow-y-auto bg-slate-50 flex-1 relative">
-            {/* 로딩 표시 (Disqus가 로드되면 덮여서 안 보임) */}
-            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm pointer-events-none">
-              <span className="animate-pulse">💬 댓글창을 불러오는 중...</span>
-            </div>
-            {/* 실제 댓글창 */}
-            <div id="disqus_thread" className="min-h-[300px] relative z-10"></div>
+          <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+            {/* ✅ 여기가 핵심: 공식 컴포넌트 사용 */}
+            {showComments && (
+              <DiscussionEmbed
+                shortname={DISQUS_SHORTNAME}
+                config={{
+                  // 실제 도메인 주소 + 의원 이름으로 고유 URL 생성
+                  url: `${BASE_URL}/member/${encodeURIComponent(member.name)}`,
+                  identifier: member.name, 
+                  title: `${member.name} 의원 토론장`,
+                  language: 'ko' 
+                }}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -419,7 +387,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 }
 
 // --------------------
-// 3. 하위 컴포넌트
+// 3. 하위 컴포넌트 (그대로 유지)
 // --------------------
 
 function SummaryCard({ title, amount, color, bg, isDebt = false, onClick }: any) {
