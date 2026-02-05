@@ -36,12 +36,27 @@ interface Member {
   changeRate: number;
 }
 
+// 🔥 [중요] 컴포넌트 밖에 변수를 선언해서, 페이지를 갔다 와도 데이터가 살아있게 함 (캐싱)
+let cachedMembers: Member[] | null = null;
+
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // 🔥 이미 데이터가 있으면 로딩 없이 바로 보여줌 (스크롤 유지의 핵심!)
+    if (cachedMembers) {
+      setMembers(cachedMembers);
+      setLoading(false);
+      
+      // 브라우저가 스크롤 위치를 찾을 시간을 살짝 줌
+      setTimeout(() => {
+        // Next.js가 자동으로 스크롤 복원을 시도함
+      }, 0);
+      return;
+    }
+
     async function fetchData() {
       try {
         const [assetsRes, profilesRes] = await Promise.all([
@@ -98,6 +113,9 @@ export default function Home() {
         });
 
         processed.sort((a, b) => b.totalAssets - a.totalAssets);
+        
+        // 🔥 데이터를 전역 변수에 저장
+        cachedMembers = processed;
         setMembers(processed);
         setLoading(false);
       } catch (error) {
@@ -183,7 +201,7 @@ export default function Home() {
         ) : filteredMembers.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredMembers.map((member, index) => (
-              <Link href={`/member/${member.name}`} key={member.id}>
+              <Link href={`/member/${member.name}`} key={member.id} scroll={true}>
                 <div className="rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full">
                   {/* 상단 띠 */}
                   <div className={`h-2 w-full ${
@@ -269,11 +287,17 @@ export default function Home() {
         </button>
       </div>
 
-      {/* 5. 👇 여기에 이름을 추가했습니다! */}
-      <footer className="w-full text-center border-t border-slate-200 py-8 mt-auto bg-slate-100">
-        <p className="text-slate-500 text-sm">
-          made by <strong className="text-blue-600">최임호</strong>
+      {/* 5. 하단 푸터 (이메일 문의) */}
+      <footer className="w-full text-center border-t border-slate-200 py-10 mt-auto bg-slate-100">
+        <p className="text-slate-500 text-sm mb-2">
+          정정 요청 및 건의사항은 하단 메일로 보내주세요~
         </p>
+        <a 
+          href="mailto:modntsimho@gmail.com" 
+          className="text-blue-600 font-bold hover:underline text-lg"
+        >
+          modntsimho@gmail.com
+        </a>
       </footer>
 
     </main>

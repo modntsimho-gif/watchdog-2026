@@ -3,12 +3,16 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 
-interface Asset {
+// --------------------
+// 1. 타입 정의
+// --------------------
+interface AssetItem {
+  relationship: string;
   type: string;
-  name: string;
+  description: string;
   previous_value: number;
   current_value: number;
-  change: number;
+  reason: string;
 }
 
 interface MemberDetail {
@@ -17,19 +21,51 @@ interface MemberDetail {
   district: string;
   imageUrl: string;
   totalAssets: number;
-  totalDebt: number;
-  assets: Asset[];
+  assets: AssetItem[];
 }
 
-export default function MemberPage({ params }: { params: Promise<{ name: string }> }) {
-  
+interface GroupedAssets {
+  realEstate: AssetItem[]; // 부동산
+  financial: AssetItem[];  // 금융
+  cars: AssetItem[];       // 자동차
+  debt: AssetItem[];       // 채무
+  others: AssetItem[];     // 기타
+}
+
+interface RawAssetMember {
+  name: string;
+  assets: AssetItem[];
+}
+
+interface RawProfile {
+  NAAS_NM: string;
+  PLPT_NM: string;
+  ELECD_NM: string;
+  NAAS_PIC: string;
+  STATUS_NM: string;
+}
+
+// --------------------
+// 2. 컴포넌트 시작
+// --------------------
+export default function MemberDetail({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params);
-  const memberName = decodeURIComponent(name);
   
   const [member, setMember] = useState<MemberDetail | null>(null);
+  const [grouped, setGrouped] = useState<GroupedAssets>({
+    realEstate: [],
+    financial: [],
+    cars: [],
+    debt: [],
+    others: [],
+  });
   const [loading, setLoading] = useState(true);
 
+  const decodedName = decodeURIComponent(name);
+
   useEffect(() => {
+    window.scrollTo(0, 0);
+
     async function fetchData() {
       try {
         const [assetsRes, profilesRes] = await Promise.all([
@@ -37,58 +73,91 @@ export default function MemberPage({ params }: { params: Promise<{ name: string 
           fetch("/members_info.json"),
         ]);
 
-        const rawAssets = await assetsRes.json();
-        const rawProfiles = await profilesRes.json();
+        if (!assetsRes.ok || !profilesRes.ok) throw new Error("데이터 로딩 실패");
 
-        const assetData = rawAssets.find((p: any) => p.name === memberName);
-        const profileData = rawProfiles.find((p: any) => p.NAAS_NM === memberName && p.STATUS_NM === "현직의원");
+        const rawAssets: RawAssetMember[] = await assetsRes.json();
+        const rawProfiles: RawProfile[] = await profilesRes.json();
 
-        if (!assetData) {
-          setLoading(false);
-          return;
-        }
+        const targetAsset = rawAssets.find((p) => p.name === decodedName);
+        const targetProfile = rawProfiles.find(
+          (p) => p.NAAS_NM === decodedName && p.STATUS_NM === "현직의원"
+        );
 
-        // 👇 [디버깅용] 데이터 구조를 확인하기 위해 콘솔에 출력합니다.
-        // F12 -> Console 탭에서 확인 가능합니다.
-        if (assetData.assets.length > 0) {
-          console.log("📢 첫 번째 자산 데이터 구조:", assetData.assets[0]);
-        }
+        if (targetAsset) {
+          // 1. 순자산 총액 계산
+          const total = targetAsset.assets.reduce((sum, item) => {
+            return item.type.includes("채무") 
+              ? sum - item.current_value 
+              : sum + item.current_value;
+          }, 0);
 
-        let totalAssets = 0;
-        let totalDebt = 0;
-
-        const processedAssets = assetData.assets.map((item: any) => {
-          const isDebt = item.type.includes("채무");
-          if (isDebt) {
-            totalDebt += item.current_value;
-            totalAssets -= item.current_value; 
-          } else {
-            totalAssets += item.current_value;
-          }
-
-          // 👇 여기가 핵심! 이름이 될만한 필드를 다 찾아봅니다.
-          // description, remarks, cat2, section_name 등을 추가했습니다.
-          const realName = item.description || item.detail || item.remarks || item.cat2 || item.section_name || item.name || item.type;
-
-          return {
-            type: item.type,
-            name: realName, 
-            previous_value: item.previous_value,
-            current_value: item.current_value,
-            change: item.current_value - item.previous_value,
+          // 2. 카테고리별 분류 로직
+          const groups: GroupedAssets = {
+            realEstate: [],
+            financial: [],
+            cars: [],
+            debt: [],
+            others: [],
           };
-        });
 
-        setMember({
-          name: memberName,
-          party: profileData?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
-          district: profileData?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
-          imageUrl: profileData?.NAAS_PIC || "",
-          totalAssets,
-          totalDebt,
-          assets: processedAssets,
-        });
+          targetAsset.assets.forEach((item) => {
+            const t = item.type;         // 종류 (예: 예금)
+            const d = item.description;  // 내용 (예: 국민은행)
 
+            // (1) 채무 (가장 먼저 체크)
+            if (t.includes("채무")) {
+              groups.debt.push(item);
+            } 
+            // (2) 자동차
+            else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
+              groups.cars.push(item);
+            }
+            // (3) 부동산
+            else if (
+              t.includes("토지") || t.includes("건물") || t.includes("주택") || 
+              t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
+              t.includes("전") || t.includes("답") || t.includes("도로") || 
+              t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
+              t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
+              t.includes("전세") || t.includes("임차") || t.includes("권리")
+            ) {
+              groups.realEstate.push(item);
+            } 
+            // (4) 금융 (🔥 조건 대폭 강화: 내용에 은행 이름 있어도 포함)
+            else if (
+              t.includes("예금") || t.includes("증권") || t.includes("채권") || 
+              t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
+              t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
+              // 👇 내용(Description) 체크 추가!
+              d.includes("은행") || d.includes("농협") || d.includes("수협") || 
+              d.includes("신협") || d.includes("금융") || d.includes("증권") || 
+              d.includes("보험") || d.includes("생명") || d.includes("화재")
+            ) {
+              groups.financial.push(item);
+            } 
+            // (5) 그 외
+            else {
+              groups.others.push(item);
+            }
+          });
+
+          // 정렬
+          groups.realEstate.sort((a, b) => b.current_value - a.current_value);
+          groups.financial.sort((a, b) => b.current_value - a.current_value);
+          groups.cars.sort((a, b) => b.current_value - a.current_value);
+          groups.debt.sort((a, b) => b.current_value - a.current_value);
+          groups.others.sort((a, b) => b.current_value - a.current_value);
+
+          setMember({
+            name: targetAsset.name,
+            party: targetProfile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
+            district: targetProfile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
+            imageUrl: targetProfile?.NAAS_PIC || "",
+            totalAssets: total,
+            assets: targetAsset.assets,
+          });
+          setGrouped(groups);
+        }
         setLoading(false);
       } catch (error) {
         console.error(error);
@@ -96,87 +165,194 @@ export default function MemberPage({ params }: { params: Promise<{ name: string 
       }
     }
     fetchData();
-  }, [memberName]);
+  }, [decodedName]);
 
   const formatMoney = (amount: number) => {
-    const realAmount = amount * 1000; 
+    const realAmount = amount * 1000;
     if (realAmount === 0) return "0원";
-    const uk = Math.floor(realAmount / 100000000);
-    const rest = realAmount % 100000000;
-    const man = Math.floor(rest / 10000);
+    
     const sign = realAmount < 0 ? "-" : "";
-    const absUk = Math.abs(uk);
-    const absMan = Math.abs(man);
+    const absAmount = Math.abs(realAmount);
+    const uk = Math.floor(absAmount / 100000000);
+    const rest = absAmount % 100000000;
+    const man = Math.floor(rest / 10000);
 
-    if (absUk > 0) return `${sign}${absUk}억 ${absMan > 0 ? absMan + "만" : ""}원`;
-    return `${sign}${absMan}만원`;
+    if (uk > 0) return `${sign}${uk}억 ${man > 0 ? man + "만" : ""}원`;
+    return `${sign}${man}만원`;
   };
 
-  const groupedAssets = member?.assets.reduce((acc, item) => {
-    const key = item.type;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(item);
-    return acc;
-  }, {} as Record<string, Asset[]>);
+  const getGroupTotal = (items: AssetItem[]) => {
+    return items.reduce((sum, item) => sum + item.current_value, 0);
+  };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center text-2xl">⏳ 데이터를 불러오는 중...</div>;
-  if (!member) return <div className="min-h-screen flex items-center justify-center text-2xl">😢 데이터를 찾을 수 없습니다.</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="text-2xl animate-spin">⏳</div></div>;
+  if (!member) return <div className="min-h-screen flex items-center justify-center">정보 없음</div>;
 
   return (
     <main className="min-h-screen bg-slate-50 pb-20">
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-4">
-          <Link href="/" className="text-2xl hover:bg-slate-100 p-2 rounded-full transition-colors">⬅️</Link>
-          <h1 className="text-xl font-bold text-slate-800">상세 재산 내역</h1>
+      
+      {/* 1. 상단 프로필 */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between mb-4">
+            <Link href="/" className="text-slate-500 hover:text-blue-600 text-sm font-medium">
+              ← 뒤로가기
+            </Link>
+          </div>
+          
+          <div className="flex items-center gap-5">
+            <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-slate-100 bg-slate-100 shadow-inner flex-shrink-0">
+              {member.imageUrl ? (
+                <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-3xl">👤</div>
+              )}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                {member.name}
+                <span className={`text-xs px-2 py-1 rounded-full text-white font-normal ${
+                  member.party.includes("국민의힘") ? 'bg-red-500' : 
+                  member.party.includes("민주당") ? 'bg-blue-500' : 
+                  member.party.includes("조국") ? 'bg-blue-800' : 
+                  member.party.includes("개혁") ? 'bg-orange-500' : 'bg-slate-500'
+                }`}>
+                  {member.party}
+                </span>
+              </h1>
+              <p className="text-slate-500 text-sm">{member.district}</p>
+              <div className="mt-1 text-xl font-extrabold text-slate-800">
+                <span className="text-xs font-normal text-slate-400 mr-1">순자산</span>
+                {formatMoney(member.totalAssets)}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-10">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 flex flex-col sm:flex-row items-center gap-8 mb-10">
-          <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-slate-100 shadow-inner flex-shrink-0">
-            {member.imageUrl ? <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-slate-200 flex items-center justify-center text-4xl">👤</div>}
-          </div>
-          <div className="text-center sm:text-left flex-1 w-full">
-            <div className="flex items-center justify-center sm:justify-start gap-3 mb-2">
-              <h2 className="text-3xl font-extrabold text-slate-900">{member.name}</h2>
-              <span className={`px-3 py-1 rounded-full text-white text-sm font-bold ${member.party.includes("국민의힘") ? 'bg-red-600' : member.party.includes("민주당") ? 'bg-blue-600' : member.party.includes("조국") ? 'bg-blue-800' : 'bg-slate-500'}`}>{member.party}</span>
-            </div>
-            <p className="text-slate-500 text-lg mb-6">{member.district}</p>
-            <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <div><p className="text-sm text-slate-500 mb-1">총 순자산 (빚 제외)</p><p className="text-2xl font-bold text-blue-600">{formatMoney(member.totalAssets)}</p></div>
-              <div><p className="text-sm text-slate-500 mb-1">총 부채</p><p className="text-2xl font-bold text-red-500">{formatMoney(member.totalDebt)}</p></div>
-            </div>
-          </div>
+      <div className="max-w-3xl mx-auto px-4 py-6 space-y-8">
+        
+        {/* 2. 자산 요약 대시보드 */}
+        <div className="grid grid-cols-2 gap-3">
+          <SummaryCard title="🏢 부동산" amount={getGroupTotal(grouped.realEstate)} color="text-slate-700" bg="bg-white" />
+          <SummaryCard title="💰 예금/증권" amount={getGroupTotal(grouped.financial)} color="text-blue-600" bg="bg-blue-50/50" />
+          
+          {grouped.cars.length > 0 ? (
+            <SummaryCard title="🚗 자동차" amount={getGroupTotal(grouped.cars)} color="text-slate-600" bg="bg-white" />
+          ) : (
+             <SummaryCard title="💎 기타자산" amount={getGroupTotal(grouped.others)} color="text-slate-600" bg="bg-white" />
+          )}
+
+          <SummaryCard title="📉 채무" amount={getGroupTotal(grouped.debt)} color="text-red-500" bg="bg-red-50/50" isDebt />
         </div>
 
-        <h3 className="text-2xl font-bold text-slate-800 mb-6">📂 자산 세부 내역</h3>
+        {/* 3. 상세 리스트 섹션 */}
         
-        <div className="space-y-8">
-          {groupedAssets && Object.keys(groupedAssets).map((type) => (
-            <div key={type} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-              <div className="bg-slate-100 px-6 py-3 border-b border-slate-200 flex justify-between items-center">
-                <h4 className="font-bold text-lg text-slate-700">{type}</h4>
-                <span className="text-sm text-slate-500">{groupedAssets[type].length}건</span>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {groupedAssets[type].map((item, idx) => (
-                  <div key={idx} className="p-6 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                    <div className="flex-1 pr-4">
-                      {/* 이름 표시 영역 */}
-                      <p className="text-slate-900 font-bold text-lg leading-snug break-keep">{item.name}</p>
-                      {item.name !== item.type && <p className="text-slate-400 text-sm mt-1">{item.type}</p>}
-                    </div>
-                    <div className="text-right flex-shrink-0 mt-2 sm:mt-0">
-                      <p className={`text-lg font-bold ${item.type.includes("채무") ? "text-red-600" : "text-slate-900"}`}>{item.type.includes("채무") ? "-" : ""}{formatMoney(item.current_value)}</p>
-                      {item.change !== 0 && <p className={`text-sm ${item.change > 0 ? "text-red-500" : "text-blue-500"}`}>{item.change > 0 ? "▲" : "▼"} {formatMoney(Math.abs(item.change))} 변동</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* 부동산 */}
+        {grouped.realEstate.length > 0 && (
+          <Section title="🏢 부동산 (토지/건물)" count={grouped.realEstate.length} total={getGroupTotal(grouped.realEstate)} formatMoney={formatMoney}>
+            {grouped.realEstate.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
+          </Section>
+        )}
+
+        {/* 금융 */}
+        {grouped.financial.length > 0 && (
+          <Section title="💰 금융 (예금/증권)" count={grouped.financial.length} total={getGroupTotal(grouped.financial)} formatMoney={formatMoney}>
+            {grouped.financial.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
+          </Section>
+        )}
+
+        {/* 자동차 */}
+        {grouped.cars.length > 0 && (
+          <Section title="🚗 자동차" count={grouped.cars.length} total={getGroupTotal(grouped.cars)} formatMoney={formatMoney}>
+            {grouped.cars.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
+          </Section>
+        )}
+
+        {/* 기타 */}
+        {grouped.others.length > 0 && (
+          <Section title="💎 기타 (회원권/보석 등)" count={grouped.others.length} total={getGroupTotal(grouped.others)} formatMoney={formatMoney}>
+            {grouped.others.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
+          </Section>
+        )}
+
+        {/* 채무 */}
+        {grouped.debt.length > 0 && (
+          <Section title="📉 채무 (빚)" count={grouped.debt.length} total={getGroupTotal(grouped.debt)} formatMoney={formatMoney} isDebt>
+            {grouped.debt.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} isDebt />)}
+          </Section>
+        )}
+
       </div>
     </main>
+  );
+}
+
+// --------------------
+// 3. 하위 컴포넌트
+// --------------------
+
+function SummaryCard({ title, amount, color, bg, isDebt = false }: any) {
+  const formatSimple = (val: number) => {
+    const real = val * 1000;
+    if (real === 0) return "-";
+    const uk = Math.floor(real / 100000000);
+    if (uk > 0) return `${uk}억+`;
+    return `${Math.floor(real / 10000)}만+`;
+  };
+
+  return (
+    <div className={`p-4 rounded-xl border border-slate-200 shadow-sm ${bg}`}>
+      <p className="text-xs text-slate-500 mb-1">{title}</p>
+      <p className={`text-lg font-bold ${color}`}>
+        {isDebt && amount > 0 ? "-" : ""}{formatSimple(amount)}
+      </p>
+    </div>
+  );
+}
+
+function Section({ title, count, total, children, formatMoney, isDebt }: any) {
+  return (
+    <section>
+      <div className="flex items-end justify-between mb-3 px-1">
+        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          {title} <span className="text-xs font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md">{count}건</span>
+        </h2>
+        <span className={`text-sm font-bold ${isDebt ? 'text-red-500' : 'text-slate-600'}`}>
+          {isDebt ? "-" : ""}{formatMoney(total)}
+        </span>
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100 overflow-hidden">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function AssetRow({ item, formatMoney, isDebt }: any) {
+  return (
+    <div className="p-4 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex-1">
+        <div className="flex items-center gap-2 mb-1">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+            item.relationship === "본인" ? "bg-blue-50 border-blue-100 text-blue-600" : "bg-slate-50 border-slate-100 text-slate-500"
+          }`}>
+            {item.relationship}
+          </span>
+          <span className="text-xs font-semibold text-slate-700">{item.type}</span>
+        </div>
+        <p className="text-sm text-slate-600 break-keep leading-snug">
+          {item.description}
+        </p>
+      </div>
+      <div className="text-right flex-shrink-0 mt-2 sm:mt-0">
+        <p className={`text-sm font-bold ${isDebt ? 'text-red-500' : 'text-slate-800'}`}>
+          {isDebt ? "-" : ""}{formatMoney(item.current_value)}
+        </p>
+        {item.reason && item.reason !== "변동없음" && (
+          <p className="text-xs text-slate-400 mt-0.5">{item.reason}</p>
+        )}
+      </div>
+    </div>
   );
 }
