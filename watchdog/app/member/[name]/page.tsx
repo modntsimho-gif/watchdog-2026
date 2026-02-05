@@ -66,8 +66,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
   
   // 댓글 모달 상태
   const [showComments, setShowComments] = useState(false);
-  // Disqus 로드 여부 체크
-  const [disqusLoaded, setDisqusLoaded] = useState(false);
 
   const decodedName = decodeURIComponent(name);
 
@@ -174,40 +172,42 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     fetchData();
   }, [decodedName]);
 
-  // 🔥 [핵심 수정] Disqus 로직: 모달이 열리면 로드하되, 닫아도 DOM을 유지함
+  // 🔥 [핵심 수정] Disqus 로직: 모달 열릴 때마다 강제 리셋
   useEffect(() => {
-    // 모달이 처음 열렸고, 아직 로드 안됐을 때만 실행
-    if (showComments && member && !disqusLoaded) {
+    if (showComments && member) {
       
-      // @ts-ignore
-      window.disqus_config = function (this: any) {
-        this.page.url = window.location.href;
-        this.page.identifier = member.name;
-      };
-
-      // @ts-ignore
-      if (window.DISQUS) {
-        // 이미 스크립트가 있으면 리셋 (페이지 이동 시)
+      // 약간의 지연을 줘서 모달이 완전히 그려진 후 실행 (안정성 확보)
+      const timer = setTimeout(() => {
         // @ts-ignore
-        window.DISQUS.reset({
-          reload: true,
-          config: function (this: any) {
-            this.page.identifier = member.name;
+        if (window.DISQUS) {
+          // 이미 로드된 경우: 리셋 명령
+          // @ts-ignore
+          window.DISQUS.reset({
+            reload: true,
+            config: function (this: any) {
+              this.page.identifier = member.name;
+              this.page.url = window.location.href;
+            },
+          });
+        } else {
+          // 처음인 경우: 스크립트 삽입
+          // @ts-ignore
+          window.disqus_config = function (this: any) {
             this.page.url = window.location.href;
-          },
-        });
-      } else {
-        // 스크립트 최초 삽입
-        const d = document;
-        const s = d.createElement("script");
-        s.src = `https://${DISQUS_SHORTNAME}.disqus.com/embed.js`;
-        s.setAttribute("data-timestamp", new Date().toString());
-        (d.head || d.body).appendChild(s);
-      }
-      
-      setDisqusLoaded(true); // 로드 완료 표시
+            this.page.identifier = member.name;
+          };
+          
+          const d = document;
+          const s = d.createElement("script");
+          s.src = `https://${DISQUS_SHORTNAME}.disqus.com/embed.js`;
+          s.setAttribute("data-timestamp", new Date().toString());
+          (d.head || d.body).appendChild(s);
+        }
+      }, 100); // 0.1초 딜레이
+
+      return () => clearTimeout(timer);
     }
-  }, [showComments, member, disqusLoaded]);
+  }, [showComments, member]);
 
   // 모달 스크롤 방지
   useEffect(() => {
@@ -245,8 +245,8 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
   return (
     <main className="min-h-screen bg-slate-50 pb-20">
       
-      {/* 1. 상단 프로필 (Sticky Header) */}
-      <div className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm transition-all">
+      {/* 1. 상단 프로필 (Sticky Header) - 안전한 색상 사용 */}
+      <div className="bg-[rgba(255,255,255,0.95)] backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 py-3">
           
           <div className="flex items-center justify-between mb-2">
@@ -282,10 +282,9 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
               </div>
             </div>
 
-            {/* 토론장 버튼 */}
             <button 
               onClick={() => setShowComments(true)}
-              className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 sm:px-4 sm:py-2.5 rounded-full shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+              className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 sm:px-4 sm:py-2.5 rounded-full shadow-md active:scale-95 flex items-center gap-1.5"
             >
               <span className="text-lg">💬</span>
               <span className="text-xs sm:text-sm font-bold">토론장</span>
@@ -296,7 +295,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-8">
         
-        {/* 2. 자산 요약 대시보드 */}
+        {/* 2. 자산 요약 대시보드 - 안전한 색상 사용 */}
         <div className="grid grid-cols-2 gap-3">
           <SummaryCard 
             title="🏢 부동산" 
@@ -309,7 +308,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             title="💰 예금/증권/현금" 
             amount={getGroupTotal(grouped.financial)} 
             color="text-blue-600" 
-            bg="bg-blue-50/50" 
+            bg="bg-[rgba(239,246,255,0.6)]" 
             onClick={() => scrollToSection("section-financial")}
           />
           
@@ -335,7 +334,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             title="📉 채무" 
             amount={getGroupTotal(grouped.debt)} 
             color="text-red-500" 
-            bg="bg-red-50/50" 
+            bg="bg-[rgba(254,242,242,0.6)]" 
             isDebt 
             onClick={() => scrollToSection("section-debt")}
           />
@@ -374,7 +373,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 
       </div>
 
-      {/* 🔥 [수정] 댓글 모달 (CSS로 숨김 처리하여 에러 방지) */}
+      {/* 🔥 댓글 모달 (안전한 RGBA 배경색) */}
       <div 
         className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-opacity duration-200 ${
           showComments ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
@@ -382,7 +381,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
       >
         {/* 배경 */}
         <div 
-          className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+          className="absolute inset-0 bg-[rgba(15,23,42,0.6)] backdrop-blur-sm"
           onClick={() => setShowComments(false)}
         />
         
@@ -404,9 +403,13 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           </div>
           
           {/* Disqus 영역 */}
-          <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
-            {/* 🔥 이 div는 절대 사라지지 않음 */}
-            <div id="disqus_thread" className="min-h-[300px]"></div>
+          <div className="p-6 overflow-y-auto bg-slate-50 flex-1 relative">
+            {/* 로딩 표시 (Disqus가 로드되면 덮여서 안 보임) */}
+            <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm pointer-events-none">
+              <span className="animate-pulse">💬 댓글창을 불러오는 중...</span>
+            </div>
+            {/* 실제 댓글창 */}
+            <div id="disqus_thread" className="min-h-[300px] relative z-10"></div>
           </div>
         </div>
       </div>
