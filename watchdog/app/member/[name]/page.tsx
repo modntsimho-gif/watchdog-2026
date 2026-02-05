@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
-// ✅ 공식 라이브러리 임포트
-import { DiscussionEmbed } from "disqus-react";
+import { createClient } from "@supabase/supabase-js";
 
-// ✅ 선생님의 Shortname
-const DISQUS_SHORTNAME = "ni-eolma"; 
-// ✅ 선생님의 실제 도메인
-const BASE_URL = "https://www.ni-eolma.com";
+// ✅ 선생님의 Supabase 키설정
+const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2h3Z2ZndHBzcGl1cGhmd296Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNzEyMDIsImV4cCI6MjA4NTg0NzIwMn0.GEzYz9YaLK8dbWs0dyY4jtiTb6IYl4IORcvQqUm2WWk";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --------------------
 // 1. 타입 정의
@@ -52,8 +52,17 @@ interface RawProfile {
   STATUS_NM: string;
 }
 
+interface Comment {
+  id: number;
+  created_at: string;
+  nickname: string;
+  content: string;
+  member_name: string;
+  parent_id: number | null; // ✅ 대댓글용 부모 ID 추가
+}
+
 // --------------------
-// 2. 컴포넌트 시작
+// 2. 메인 컴포넌트
 // --------------------
 export default function MemberDetail({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params);
@@ -67,8 +76,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     others: [],
   });
   const [loading, setLoading] = useState(true);
-  
-  // 댓글 모달 상태
   const [showComments, setShowComments] = useState(false);
 
   const decodedName = decodeURIComponent(name);
@@ -76,7 +83,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
   // 데이터 로딩
   useEffect(() => {
     window.scrollTo(0, 0);
-
     async function fetchData() {
       try {
         const [assetsRes, profilesRes] = await Promise.all([
@@ -114,39 +120,33 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 
             if (t.includes("채무") || d.includes("채무")) {
               groups.debt.push(item);
-            } 
-            else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
+            } else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
               groups.cars.push(item);
-            }
-            else if (
+            } else if (
               t.includes("토지") || t.includes("건물") || t.includes("주택") || 
               t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
               t.includes("전") || t.includes("답") || t.includes("도로") || 
               t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
               t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
               t.includes("전세") || t.includes("임차") || t.includes("권리") ||
-              t.includes("창고") || 
-              d.includes("건물") || d.includes("대지") || d.includes("임야") ||
-              d.includes("아파트") || d.includes("창고") || d.includes("주택") ||
-              d.includes("㎡")
+              t.includes("창고") || d.includes("건물") || d.includes("대지") || 
+              d.includes("임야") || d.includes("아파트") || d.includes("창고") || 
+              d.includes("주택") || d.includes("㎡")
             ) {
               groups.realEstate.push(item);
-            } 
-            else if (
+            } else if (
               t.includes("예금") || t.includes("증권") || t.includes("채권") || 
               t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
               t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
               t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
-              t.includes("사인간") || t.includes("대여금") || 
-              d.includes("은행") || d.includes("농협") || d.includes("수협") || 
-              d.includes("신협") || d.includes("금융") || d.includes("증권") || 
-              d.includes("보험") || d.includes("생명") || d.includes("화재") ||
-              d.includes("사인간") || d.includes("채권") || d.includes("대여금") ||
-              d.includes("현금")
+              t.includes("사인간") || t.includes("대여금") || d.includes("은행") || 
+              d.includes("농협") || d.includes("수협") || d.includes("신협") || 
+              d.includes("금융") || d.includes("증권") || d.includes("보험") || 
+              d.includes("생명") || d.includes("화재") || d.includes("사인간") || 
+              d.includes("채권") || d.includes("대여금") || d.includes("현금")
             ) {
               groups.financial.push(item);
-            } 
-            else {
+            } else {
               groups.others.push(item);
             }
           });
@@ -212,16 +212,14 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
   return (
     <main className="min-h-screen bg-slate-50 pb-20">
       
-      {/* 1. 상단 프로필 */}
+      {/* 상단 프로필 */}
       <div className="bg-[rgba(255,255,255,0.95)] backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 py-3">
-          
           <div className="flex items-center justify-between mb-2">
             <Link href="/" className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1">
               ← 목록으로
             </Link>
           </div>
-          
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
               <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden border border-slate-200 bg-slate-100 flex-shrink-0">
@@ -254,107 +252,55 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
               className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 sm:px-4 sm:py-2.5 rounded-full shadow-md active:scale-95 flex items-center gap-1.5"
             >
               <span className="text-lg">💬</span>
-              <span className="text-xs sm:text-sm font-bold">토론장</span>
+              <span className="text-xs sm:text-sm font-bold">댓글 보기</span>
             </button>
           </div>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-8">
-        {/* 자산 요약 및 리스트 (기존과 동일) */}
+        {/* 요약 카드 */}
         <div className="grid grid-cols-2 gap-3">
-          <SummaryCard 
-            title="🏢 부동산" 
-            amount={getGroupTotal(grouped.realEstate)} 
-            color="text-slate-700" 
-            bg="bg-white" 
-            onClick={() => scrollToSection("section-realestate")} 
-          />
-          <SummaryCard 
-            title="💰 예금/증권/현금" 
-            amount={getGroupTotal(grouped.financial)} 
-            color="text-blue-600" 
-            bg="bg-[rgba(239,246,255,0.6)]" 
-            onClick={() => scrollToSection("section-financial")}
-          />
-          
+          <SummaryCard title="🏢 부동산" amount={getGroupTotal(grouped.realEstate)} color="text-slate-700" bg="bg-white" onClick={() => scrollToSection("section-realestate")} />
+          <SummaryCard title="💰 예금/증권/현금" amount={getGroupTotal(grouped.financial)} color="text-blue-600" bg="bg-[rgba(239,246,255,0.6)]" onClick={() => scrollToSection("section-financial")} />
           {grouped.cars.length > 0 ? (
-            <SummaryCard 
-              title="🚗 자동차" 
-              amount={getGroupTotal(grouped.cars)} 
-              color="text-slate-600" 
-              bg="bg-white" 
-              onClick={() => scrollToSection("section-cars")}
-            />
+            <SummaryCard title="🚗 자동차" amount={getGroupTotal(grouped.cars)} color="text-slate-600" bg="bg-white" onClick={() => scrollToSection("section-cars")} />
           ) : (
-             <SummaryCard 
-              title="💎 기타자산" 
-              amount={getGroupTotal(grouped.others)} 
-              color="text-slate-600" 
-              bg="bg-white" 
-              onClick={() => scrollToSection("section-others")}
-             />
+             <SummaryCard title="💎 기타자산" amount={getGroupTotal(grouped.others)} color="text-slate-600" bg="bg-white" onClick={() => scrollToSection("section-others")} />
           )}
-
-          <SummaryCard 
-            title="📉 채무" 
-            amount={getGroupTotal(grouped.debt)} 
-            color="text-red-500" 
-            bg="bg-[rgba(254,242,242,0.6)]" 
-            isDebt 
-            onClick={() => scrollToSection("section-debt")}
-          />
+          <SummaryCard title="📉 채무" amount={getGroupTotal(grouped.debt)} color="text-red-500" bg="bg-[rgba(254,242,242,0.6)]" isDebt onClick={() => scrollToSection("section-debt")} />
         </div>
 
-        {grouped.realEstate.length > 0 && (
-          <Section id="section-realestate" title="🏢 부동산 (토지/건물)" count={grouped.realEstate.length} total={getGroupTotal(grouped.realEstate)} formatMoney={formatMoney}>
-            {grouped.realEstate.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
-          </Section>
-        )}
-
-        {grouped.financial.length > 0 && (
-          <Section id="section-financial" title="💰 금융 (예금/증권/현금)" count={grouped.financial.length} total={getGroupTotal(grouped.financial)} formatMoney={formatMoney}>
-            {grouped.financial.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
-          </Section>
-        )}
-
-        {grouped.cars.length > 0 && (
-          <Section id="section-cars" title="🚗 자동차" count={grouped.cars.length} total={getGroupTotal(grouped.cars)} formatMoney={formatMoney}>
-            {grouped.cars.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
-          </Section>
-        )}
-
-        {grouped.others.length > 0 && (
-          <Section id="section-others" title="💎 기타 (회원권/보석 등)" count={grouped.others.length} total={getGroupTotal(grouped.others)} formatMoney={formatMoney}>
-            {grouped.others.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
-          </Section>
-        )}
-
-        {grouped.debt.length > 0 && (
-          <Section id="section-debt" title="📉 채무 (빚)" count={grouped.debt.length} total={getGroupTotal(grouped.debt)} formatMoney={formatMoney} isDebt>
-            {grouped.debt.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} isDebt />)}
-          </Section>
-        )}
-
+        {/* 상세 리스트 */}
+        {grouped.realEstate.length > 0 && <Section id="section-realestate" title="🏢 부동산" count={grouped.realEstate.length} total={getGroupTotal(grouped.realEstate)} formatMoney={formatMoney}>{grouped.realEstate.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
+        {grouped.financial.length > 0 && <Section id="section-financial" title="💰 금융" count={grouped.financial.length} total={getGroupTotal(grouped.financial)} formatMoney={formatMoney}>{grouped.financial.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
+        {grouped.cars.length > 0 && <Section id="section-cars" title="🚗 자동차" count={grouped.cars.length} total={getGroupTotal(grouped.cars)} formatMoney={formatMoney}>{grouped.cars.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
+        {grouped.others.length > 0 && <Section id="section-others" title="💎 기타" count={grouped.others.length} total={getGroupTotal(grouped.others)} formatMoney={formatMoney}>{grouped.others.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
+        {grouped.debt.length > 0 && <Section id="section-debt" title="📉 채무" count={grouped.debt.length} total={getGroupTotal(grouped.debt)} formatMoney={formatMoney} isDebt>{grouped.debt.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} isDebt />)}</Section>}
       </div>
 
-      {/* 🔥 댓글 모달 (공식 라이브러리 사용) */}
+      {/* 🔥 댓글 모달 */}
       <div 
         className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-opacity duration-200 ${
           showComments ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
         }`}
       >
         <div 
-          className="absolute inset-0 bg-[rgba(15,23,42,0.6)] backdrop-blur-sm"
+          className="absolute inset-0 backdrop-blur-sm"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }} 
           onClick={() => setShowComments(false)}
         />
         
-        <div className={`relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] transition-transform duration-200 ${
-          showComments ? "scale-100" : "scale-95"
-        }`}>
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
+        <div 
+          className={`relative w-full max-w-2xl h-[85vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col transition-transform duration-200 ${
+            showComments ? "scale-100" : "scale-95"
+          }`}
+          style={{ backgroundColor: '#ffffff' }}
+        >
+          {/* 헤더 */}
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10 bg-white flex-shrink-0">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              🗣️ {member.name} 의원 토론장
+              🗣️ {member.name} 의원놈의 댓글
             </h3>
             <button 
               onClick={() => setShowComments(false)}
@@ -364,30 +310,222 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             </button>
           </div>
           
-          <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
-            {/* ✅ 여기가 핵심: 공식 컴포넌트 사용 */}
+          {/* 내용 영역 */}
+          <div className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative">
             {showComments && (
-              <DiscussionEmbed
-                shortname={DISQUS_SHORTNAME}
-                config={{
-                  // 실제 도메인 주소 + 의원 이름으로 고유 URL 생성
-                  url: `${BASE_URL}/member/${encodeURIComponent(member.name)}`,
-                  identifier: member.name, 
-                  title: `${member.name} 의원 토론장`,
-                  language: 'ko' 
-                }}
-              />
+              <CommentSection memberName={member.name} />
             )}
           </div>
         </div>
       </div>
-
     </main>
   );
 }
 
 // --------------------
-// 3. 하위 컴포넌트 (그대로 유지)
+// 🔥 3. Supabase 댓글 컴포넌트 (대댓글 기능 추가)
+// --------------------
+function CommentSection({ memberName }: { memberName: string }) {
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ nickname: "", password: "", content: "" });
+  const [submitting, setSubmitting] = useState(false);
+  
+  // ✅ 대댓글 상태 추가
+  const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const fetchComments = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("comments")
+        .select("*")
+        .eq("member_name", memberName)
+        .order("created_at", { ascending: true });
+
+      if (error) throw error;
+      setComments(data || []);
+    } catch (err) {
+      console.error("댓글 불러오기 실패:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchComments();
+  }, [memberName]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [comments]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.nickname || !form.password || !form.content) {
+      alert("닉네임, 비밀번호, 내용을 모두 입력해주세요.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from("comments").insert([
+        {
+          member_name: memberName,
+          nickname: form.nickname,
+          password: form.password,
+          content: form.content,
+          parent_id: replyingTo ? replyingTo.id : null, // ✅ 부모 ID 저장
+        },
+      ]);
+
+      if (error) throw error;
+      setForm({ ...form, content: "" });
+      setReplyingTo(null); // ✅ 전송 후 답글 모드 해제
+      await fetchComments();
+    } catch (err) {
+      console.error("댓글 작성 실패:", err);
+      alert("댓글 작성 중 오류가 발생했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ✅ 댓글 그룹화 (부모-자식 연결)
+  const rootComments = comments.filter(c => !c.parent_id);
+  const getReplies = (parentId: number) => comments.filter(c => c.parent_id === parentId);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      
+      {/* 1. 댓글 목록 (스크롤 영역) */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 min-h-0">
+        {loading ? (
+          <div className="text-center py-10 text-slate-400">불러오는 중...</div>
+        ) : comments.length === 0 ? (
+          <div className="text-center py-20 text-slate-400">
+            <div className="text-4xl mb-2">💬</div>
+            <p>아직 작성된 의견이 없습니다.</p>
+            <p className="text-xs mt-1">첫 번째 의견을 남겨보세요!</p>
+          </div>
+        ) : (
+          rootComments.map((comment) => (
+            <div key={comment.id} className="space-y-2">
+              {/* 부모 댓글 */}
+              <div className="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800 text-sm">{comment.nickname}</span>
+                    <span className="text-[10px] text-slate-400">
+                      {new Date(comment.created_at).toLocaleDateString()} {new Date(comment.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </span>
+                  </div>
+                  {/* ✅ 답글 버튼 */}
+                  <button 
+                    onClick={() => setReplyingTo(comment)}
+                    className="text-xs text-blue-500 hover:text-blue-700 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                  >
+                    답글달기
+                  </button>
+                </div>
+                <p className="text-slate-700 text-sm whitespace-pre-wrap leading-relaxed">
+                  {comment.content}
+                </p>
+              </div>
+
+              {/* ✅ 대댓글 (들여쓰기) */}
+              {getReplies(comment.id).map(reply => (
+                <div key={reply.id} className="flex gap-2 pl-2">
+                  <div className="text-slate-300 text-lg">└</div>
+                  <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-bold text-slate-700 text-xs">{reply.nickname}</span>
+                      <span className="text-[10px] text-slate-400">
+                        {new Date(reply.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-slate-600 text-xs whitespace-pre-wrap leading-relaxed">
+                      {reply.content}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* 2. 입력 폼 (고정 영역) */}
+      <div className="flex-shrink-0 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+        
+        {/* ✅ 답글 모드일 때 표시되는 알림바 */}
+        {replyingTo && (
+          <div className="bg-blue-50 px-4 py-2 flex items-center justify-between border-b border-blue-100">
+            <span className="text-xs text-blue-700 font-medium truncate">
+              🚀 <b>{replyingTo.nickname}</b>님에게 답글 작성 중...
+            </span>
+            <button 
+              onClick={() => setReplyingTo(null)}
+              className="text-blue-400 hover:text-blue-600 px-2"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        <div className="p-4">
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                placeholder="닉네임" 
+                className="w-1/3 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors"
+                value={form.nickname}
+                onChange={(e) => setForm({ ...form, nickname: e.target.value })}
+                maxLength={10}
+              />
+              <input 
+                type="password" 
+                placeholder="비번" 
+                className="w-1/3 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-blue-500 transition-colors"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                maxLength={8}
+              />
+              <div className="w-1/3 flex items-center justify-end text-xs text-slate-400">
+                익명 보장 🔒
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <textarea 
+                placeholder={replyingTo ? "답글 내용을 입력하세요..." : "의견을 남겨주세요..."}
+                className={`flex-1 p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none h-12 py-3 ${replyingTo ? 'bg-blue-50/50' : ''}`}
+                value={form.content}
+                onChange={(e) => setForm({ ...form, content: e.target.value })}
+              />
+              <button 
+                type="submit" 
+                disabled={submitting}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-lg text-sm font-bold transition-colors disabled:opacity-50 flex-shrink-0"
+              >
+                {replyingTo ? "답글" : "등록"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --------------------
+// 4. 기타 하위 컴포넌트
 // --------------------
 
 function SummaryCard({ title, amount, color, bg, isDebt = false, onClick }: any) {

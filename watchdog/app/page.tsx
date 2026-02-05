@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Script from "next/script";
+import { createClient } from "@supabase/supabase-js";
 
-// ✅ 설정: Disqus Shortname
-const DISQUS_SHORTNAME = "ni-eolma"; 
+// ✅ 선생님의 Supabase 키설정
+const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2h3Z2ZndHBzcGl1cGhmd296Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNzEyMDIsImV4cCI6MjA4NTg0NzIwMn0.GEzYz9YaLK8dbWs0dyY4jtiTb6IYl4IORcvQqUm2WWk";
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // 1. 데이터 구조
 interface RawAssetItem {
@@ -54,103 +58,129 @@ export default function Home() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>("total");
-
-  // 🔥 [핵심] 댓글 수 감지용 Observer Ref
-  const observerRef = useRef<MutationObserver | null>(null);
+  
+  // ✅ 댓글 개수 저장용 State (이름 -> 개수)
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
+    // 1. 의원 데이터 로딩 (캐시 확인)
     if (cachedMembers) {
       setMembers(cachedMembers);
       setLoading(false);
-      return;
+    } else {
+      fetchMemberData();
     }
 
-    async function fetchData() {
-      try {
-        const [assetsRes, profilesRes] = await Promise.all([
-          fetch("/assembly_assets.json"),
-          fetch("/members_info.json"),
-        ]);
+    // 2. ✅ Supabase에서 댓글 개수 가져오기
+    fetchCommentCounts();
+  }, []);
 
-        if (!assetsRes.ok || !profilesRes.ok) throw new Error("파일 로딩 실패");
+  async function fetchMemberData() {
+    try {
+      const [assetsRes, profilesRes] = await Promise.all([
+        fetch("/assembly_assets.json"),
+        fetch("/members_info.json"),
+      ]);
 
-        const rawAssets: RawAssetMember[] = await assetsRes.json();
-        const rawProfiles: RawProfile[] = await profilesRes.json();
+      if (!assetsRes.ok || !profilesRes.ok) throw new Error("파일 로딩 실패");
 
-        const profileMap = new Map<string, RawProfile>();
-        rawProfiles.forEach((p) => {
-          if (p.STATUS_NM === "현직의원") {
-             profileMap.set(p.NAAS_NM, p);
+      const rawAssets: RawAssetMember[] = await assetsRes.json();
+      const rawProfiles: RawProfile[] = await profilesRes.json();
+
+      const profileMap = new Map<string, RawProfile>();
+      rawProfiles.forEach((p) => {
+        if (p.STATUS_NM === "현직의원") {
+            profileMap.set(p.NAAS_NM, p);
+        }
+      });
+
+      const processed = rawAssets.map((person, index) => {
+        let realEstate = 0;
+        let cars = 0;
+        let financial = 0;
+        let debt = 0;
+        let totalAssets = 0;
+        let prevTotal = 0;
+
+        person.assets.forEach((item) => {
+          const t = item.type;
+          const d = item.description;
+          const val = item.current_value;
+          const prev = item.previous_value;
+
+          if (t.includes("채무") || d.includes("채무")) {
+            debt += val;
+            totalAssets -= val;
+            prevTotal -= prev;
+          } 
+          else if (t.includes("건물") || t.includes("토지") || t.includes("부동산")) {
+            realEstate += val;
+            totalAssets += val;
+            prevTotal += prev;
+          }
+          else if (t.includes("자동차") || t.includes("차량") || t.includes("승용차")) {
+            cars += val;
+            totalAssets += val;
+            prevTotal += prev;
+          }
+          else if (t.includes("예금") || t.includes("증권") || t.includes("현금") || t.includes("채권")) {
+            financial += val;
+            totalAssets += val;
+            prevTotal += prev;
+          }
+          else {
+            totalAssets += val;
+            prevTotal += prev;
           }
         });
-
-        const processed = rawAssets.map((person, index) => {
-          let realEstate = 0;
-          let cars = 0;
-          let financial = 0;
-          let debt = 0;
-          let totalAssets = 0;
-          let prevTotal = 0;
-
-          person.assets.forEach((item) => {
-            const t = item.type;
-            const d = item.description;
-            const val = item.current_value;
-            const prev = item.previous_value;
-
-            if (t.includes("채무") || d.includes("채무")) {
-              debt += val;
-              totalAssets -= val;
-              prevTotal -= prev;
-            } 
-            else if (t.includes("건물") || t.includes("토지") || t.includes("부동산")) {
-              realEstate += val;
-              totalAssets += val;
-              prevTotal += prev;
-            }
-            else if (t.includes("자동차") || t.includes("차량") || t.includes("승용차")) {
-              cars += val;
-              totalAssets += val;
-              prevTotal += prev;
-            }
-            else if (t.includes("예금") || t.includes("증권") || t.includes("현금") || t.includes("채권")) {
-              financial += val;
-              totalAssets += val;
-              prevTotal += prev;
-            }
-            else {
-              totalAssets += val;
-              prevTotal += prev;
-            }
-          });
-          
-          const changeAmount = totalAssets - prevTotal;
-          const changeRate = prevTotal === 0 ? 0 : (changeAmount / prevTotal) * 100;
-
-          const profile = profileMap.get(person.name);
-          
-          return {
-            id: `member-${index}`,
-            name: person.name,
-            party: profile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
-            district: profile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
-            imageUrl: profile?.NAAS_PIC || "",
-            totalAssets, realEstate, cars, financial, debt, changeAmount, changeRate,
-          };
-        });
-
-        processed.sort((a, b) => b.totalAssets - a.totalAssets);
         
-        cachedMembers = processed;
-        setMembers(processed);
-        setLoading(false);
-      } catch (error) {
-        console.error("에러:", error);
-        setLoading(false);
-      }
+        const changeAmount = totalAssets - prevTotal;
+        const changeRate = prevTotal === 0 ? 0 : (changeAmount / prevTotal) * 100;
+
+        const profile = profileMap.get(person.name);
+        
+        return {
+          id: `member-${index}`,
+          name: person.name,
+          party: profile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
+          district: profile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
+          imageUrl: profile?.NAAS_PIC || "",
+          totalAssets, realEstate, cars, financial, debt, changeAmount, changeRate,
+        };
+      });
+
+      processed.sort((a, b) => b.totalAssets - a.totalAssets);
+      
+      cachedMembers = processed;
+      setMembers(processed);
+      setLoading(false);
+    } catch (error) {
+      console.error("에러:", error);
+      setLoading(false);
     }
-    fetchData();
-  }, []);
+  }
+
+  // ✅ Supabase 댓글 카운트 함수
+  async function fetchCommentCounts() {
+    try {
+      // 모든 댓글의 member_name만 가져옴 (데이터 절약)
+      const { data, error } = await supabase
+        .from("comments")
+        .select("member_name");
+
+      if (error) throw error;
+
+      // 이름별 개수 세기
+      const counts: Record<string, number> = {};
+      data?.forEach((row) => {
+        counts[row.member_name] = (counts[row.member_name] || 0) + 1;
+      });
+
+      setCommentCounts(counts);
+    } catch (err) {
+      console.error("댓글 카운트 로딩 실패:", err);
+    }
+  }
 
   const sortedMembers = (() => {
     let sorted = [...members];
@@ -167,53 +197,6 @@ export default function Home() {
     member.party.includes(searchTerm) ||
     member.district.includes(searchTerm)
   );
-
-  // 🔥 [핵심 기능] Disqus가 댓글 수를 업데이트하면 감지해서 스타일 변경
-  useEffect(() => {
-    // 1. Disqus 리셋
-    // @ts-ignore
-    if (window.DISQUSWIDGETS) {
-      // @ts-ignore
-      window.DISQUSWIDGETS.getCount({ reset: true });
-    }
-
-    // 2. MutationObserver 설정 (댓글 수가 0이 아니면 'has-comments' 클래스 추가)
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' || mutation.type === 'characterData') {
-          const target = mutation.target as HTMLElement;
-          // 텍스트에서 숫자만 추출
-          const countText = target.textContent || "0";
-          const count = parseInt(countText.replace(/[^0-9]/g, "") || "0", 10);
-          
-          // 부모 요소 찾기 (badge-container)
-          const container = target.closest('.comment-badge-container');
-          
-          if (container) {
-            if (count > 0) {
-              container.classList.add('active-comments'); // 활성 상태 클래스
-              container.classList.remove('no-comments');
-            } else {
-              container.classList.add('no-comments');
-              container.classList.remove('active-comments');
-            }
-          }
-        }
-      });
-    });
-
-    // 3. 감시 시작 (조금 기다렸다가 요소가 렌더링되면 붙임)
-    setTimeout(() => {
-      const elements = document.querySelectorAll('.disqus-comment-count');
-      elements.forEach(el => {
-        observerRef.current?.observe(el, { childList: true, subtree: true, characterData: true });
-      });
-    }, 500);
-
-    return () => observerRef.current?.disconnect();
-  }, [filteredMembers, activeTab]); 
 
   const formatMoney = (amount: number) => {
     const realAmount = amount * 1000; 
@@ -247,41 +230,11 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center relative">
       
-      {/* 글로벌 스타일 추가 (동적 클래스용) */}
-      <style jsx global>{`
-        .comment-badge-container {
-          transition: all 0.3s ease;
-        }
-        /* 댓글이 없을 때 (기본) */
-        .comment-badge-container.no-comments {
-          background-color: #f1f5f9; /* slate-100 */
-          color: #94a3b8; /* slate-400 */
-        }
-        /* 댓글이 있을 때 (강조) */
-        .comment-badge-container.active-comments {
-          background-color: #1e293b; /* slate-800 */
-          color: white;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-          transform: scale(1.02);
-        }
-        /* 댓글 있을 때만 보이는 아이콘들 */
-        .active-icon, .new-badge { display: none; }
-        .active-comments .active-icon { display: inline-block; }
-        .active-comments .new-badge { display: inline-block; }
-        .active-comments .default-icon { display: none; }
-      `}</style>
-
       <Script
         async
         src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1019593213463092"
         crossOrigin="anonymous"
         strategy="afterInteractive"
-      />
-
-      <Script
-        id="dsq-count-scr"
-        src={`//${DISQUS_SHORTNAME}.disqus.com/count.js`}
-        strategy="lazyOnload"
       />
 
       {/* 상단 타이틀 */}
@@ -339,6 +292,10 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredMembers.map((member, index) => {
               const display = getDisplayValue(member);
+              // ✅ 댓글 개수 가져오기
+              const commentCount = commentCounts[member.name] || 0;
+              const hasComments = commentCount > 0;
+
               return (
                 <Link href={`/member/${member.name}`} key={member.id} scroll={true}>
                   <div className="rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full">
@@ -397,26 +354,26 @@ export default function Home() {
                         </div>
                       )}
                       
-                      {/* 🔥 [수정] 댓글 수 표시 영역 (Observer가 클래스 조작함) */}
+                      {/* 🔥 [수정] Supabase 댓글 카운트 UI */}
                       <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
-                        <div className="comment-badge-container no-comments inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all">
-                          
-                          {/* 아이콘: 댓글 없으면 💬, 있으면 🔥 */}
-                          <span className="default-icon">💬</span>
-                          <span className="active-icon animate-pulse">🔥</span>
-                          
-                          {/* 숫자 (Disqus가 채워넣음) */}
-                          <span 
-                            className="disqus-comment-count"
-                            data-disqus-identifier={member.name} 
-                          >
-                            0 Comments
+                        <div 
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                            hasComments 
+                              ? "bg-slate-800 text-white shadow-md scale-[1.02]" 
+                              : "bg-slate-100 text-slate-400"
+                          }`}
+                        >
+                          <span className={hasComments ? "animate-pulse" : ""}>
+                            {hasComments ? "🔥" : "💬"}
                           </span>
-
-                          {/* N 배지 (댓글 있을 때만 보임) */}
-                          <span className="new-badge ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">
-                            N
+                          <span>
+                            {commentCount} Comments
                           </span>
+                          {hasComments && (
+                            <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">
+                              N
+                            </span>
+                          )}
                         </div>
                       </div>
 
