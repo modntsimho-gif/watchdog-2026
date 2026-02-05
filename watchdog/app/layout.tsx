@@ -1,17 +1,28 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
-
+// 🔥 여기가 검색엔진에 뜨는 정보입니다.
 export const metadata: Metadata = {
-  title: "WatchDog - 대한민국 국회의원 재산 지도",
-  description: "국회의원들의 실제 순자산과 재산 변동 내역을 한눈에 확인하세요.",
+  title: "대한민국 국회의원 너 얼마있어? - WatchDog",
+  description: "국회의원 재산 순위, 부동산, 자동차, 현금, 부채 분석. 내 지역구 의원의 재산을 확인해보세요.",
+  icons: {
+    icon: "/favicon.ico", // 파비콘이 있다면
+  },
   openGraph: {
-    title: "WatchDog - 대한민국 국회의원 재산 지도",
-    description: "우리 지역구 의원의 재산은 얼마일까요? 빚 제외 순자산 공개.",
-    // 썸네일 이미지가 있다면 public 폴더에 넣고 아래 주석을 푸세요
-    // images: ['/thumbnail.png'], 
+    title: "국회의원 너 얼마있어? (WatchDog)",
+    description: "느그 서장... 아니 의원님 재산 얼마야? 국회의원 재산 전수 조사 데이터.",
+    url: "https://ni-eolma.com",
+    siteName: "WatchDog",
+    locale: "ko_KR",
+    type: "website",
+  },
+  keywords: ["국회의원 재산", "국회의원 순위", "정치인 재산", "박덕흠", "안철수", "재산공개"],
+
+  verification: {
+    google: 'JmFVjC8V6iKzCDm2iXz7nsJMwi0DHxZ2PvA6KUeVF-s',
+    other: {
+      'naver-site-verification': '네이버에서_준_코드',
+    },
   },
 };
 
@@ -22,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className={inter.className}>{children}</body>
+      <body>{children}</body>
     </html>
   );
 }
