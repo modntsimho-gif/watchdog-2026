@@ -3,6 +3,9 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 
+// ✅ 설정: Disqus Shortname
+const DISQUS_SHORTNAME = "ni-eolma"; 
+
 // --------------------
 // 1. 타입 정의
 // --------------------
@@ -60,9 +63,15 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     others: [],
   });
   const [loading, setLoading] = useState(true);
+  
+  // 댓글 모달 상태
+  const [showComments, setShowComments] = useState(false);
+  // Disqus 로드 여부 체크
+  const [disqusLoaded, setDisqusLoaded] = useState(false);
 
   const decodedName = decodeURIComponent(name);
 
+  // 데이터 로딩
   useEffect(() => {
     window.scrollTo(0, 0);
 
@@ -101,35 +110,29 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             const t = item.type;
             const d = item.description;
 
-            // (1) 채무
             if (t.includes("채무") || d.includes("채무")) {
               groups.debt.push(item);
             } 
-            // (2) 자동차
             else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
               groups.cars.push(item);
             }
-            // (3) 부동산 (🔥 로직 대폭 강화)
             else if (
-              // Type 체크
               t.includes("토지") || t.includes("건물") || t.includes("주택") || 
               t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
               t.includes("전") || t.includes("답") || t.includes("도로") || 
               t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
               t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
               t.includes("전세") || t.includes("임차") || t.includes("권리") ||
-              t.includes("창고") || // 창고 추가
-              
-              // Description 체크 (Type이 '기타'여도 내용에 이게 있으면 부동산)
+              t.includes("창고") || 
               d.includes("건물") || d.includes("대지") || d.includes("임야") ||
               d.includes("아파트") || d.includes("창고") || d.includes("주택") ||
-              d.includes("㎡") // 👈 면적 단위가 있으면 99% 부동산임
+              d.includes("㎡")
             ) {
               groups.realEstate.push(item);
             } 
-            // (4) 금융
             else if (
               t.includes("예금") || t.includes("증권") || t.includes("채권") || 
+              t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
               t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
               t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
               t.includes("사인간") || t.includes("대여금") || 
@@ -141,7 +144,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             ) {
               groups.financial.push(item);
             } 
-            // (5) 그 외
             else {
               groups.others.push(item);
             }
@@ -172,6 +174,48 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     fetchData();
   }, [decodedName]);
 
+  // 🔥 [핵심 수정] Disqus 로직: 모달이 열리면 로드하되, 닫아도 DOM을 유지함
+  useEffect(() => {
+    // 모달이 처음 열렸고, 아직 로드 안됐을 때만 실행
+    if (showComments && member && !disqusLoaded) {
+      
+      // @ts-ignore
+      window.disqus_config = function (this: any) {
+        this.page.url = window.location.href;
+        this.page.identifier = member.name;
+      };
+
+      // @ts-ignore
+      if (window.DISQUS) {
+        // 이미 스크립트가 있으면 리셋 (페이지 이동 시)
+        // @ts-ignore
+        window.DISQUS.reset({
+          reload: true,
+          config: function (this: any) {
+            this.page.identifier = member.name;
+            this.page.url = window.location.href;
+          },
+        });
+      } else {
+        // 스크립트 최초 삽입
+        const d = document;
+        const s = d.createElement("script");
+        s.src = `https://${DISQUS_SHORTNAME}.disqus.com/embed.js`;
+        s.setAttribute("data-timestamp", new Date().toString());
+        (d.head || d.body).appendChild(s);
+      }
+      
+      setDisqusLoaded(true); // 로드 완료 표시
+    }
+  }, [showComments, member, disqusLoaded]);
+
+  // 모달 스크롤 방지
+  useEffect(() => {
+    if (showComments) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "auto";
+    return () => { document.body.style.overflow = "auto"; };
+  }, [showComments]);
+
   const formatMoney = (amount: number) => {
     const realAmount = amount * 1000;
     if (realAmount === 0) return "0원";
@@ -201,41 +245,51 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
   return (
     <main className="min-h-screen bg-slate-50 pb-20">
       
-      {/* 1. 상단 프로필 */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <Link href="/" className="text-slate-500 hover:text-blue-600 text-sm font-medium">
-              ← 뒤로가기
+      {/* 1. 상단 프로필 (Sticky Header) */}
+      <div className="bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm transition-all">
+        <div className="max-w-3xl mx-auto px-4 py-3">
+          
+          <div className="flex items-center justify-between mb-2">
+            <Link href="/" className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1">
+              ← 목록으로
             </Link>
           </div>
           
-          <div className="flex items-center gap-5">
-            <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-slate-100 bg-slate-100 shadow-inner flex-shrink-0">
-              {member.imageUrl ? (
-                <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-3xl">👤</div>
-              )}
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-                {member.name}
-                <span className={`text-xs px-2 py-1 rounded-full text-white font-normal ${
-                  member.party.includes("국민의힘") ? 'bg-red-500' : 
-                  member.party.includes("민주당") ? 'bg-blue-500' : 
-                  member.party.includes("조국") ? 'bg-blue-800' : 
-                  member.party.includes("개혁") ? 'bg-orange-500' : 'bg-slate-500'
-                }`}>
-                  {member.party}
-                </span>
-              </h1>
-              <p className="text-slate-500 text-sm">{member.district}</p>
-              <div className="mt-1 text-xl font-extrabold text-slate-800">
-                <span className="text-xs font-normal text-slate-400 mr-1">순자산</span>
-                {formatMoney(member.totalAssets)}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden border border-slate-200 bg-slate-100 flex-shrink-0">
+                {member.imageUrl ? (
+                  <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-xl">👤</div>
+                )}
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2 truncate">
+                  {member.name}
+                  <span className={`text-[10px] sm:text-xs px-1.5 py-0.5 rounded-full text-white font-normal flex-shrink-0 ${
+                    member.party.includes("국민의힘") ? 'bg-red-500' : 
+                    member.party.includes("민주당") ? 'bg-blue-500' : 
+                    member.party.includes("조국") ? 'bg-blue-800' : 
+                    member.party.includes("개혁") ? 'bg-orange-500' : 'bg-slate-500'
+                  }`}>
+                    {member.party}
+                  </span>
+                </h1>
+                <div className="text-sm sm:text-base font-extrabold text-slate-800 truncate">
+                  {formatMoney(member.totalAssets)}
+                </div>
               </div>
             </div>
+
+            {/* 토론장 버튼 */}
+            <button 
+              onClick={() => setShowComments(true)}
+              className="flex-shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 sm:px-4 sm:py-2.5 rounded-full shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+            >
+              <span className="text-lg">💬</span>
+              <span className="text-xs sm:text-sm font-bold">토론장</span>
+            </button>
           </div>
         </div>
       </div>
@@ -288,7 +342,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
         </div>
 
         {/* 3. 상세 리스트 섹션 */}
-        
         {grouped.realEstate.length > 0 && (
           <Section id="section-realestate" title="🏢 부동산 (토지/건물)" count={grouped.realEstate.length} total={getGroupTotal(grouped.realEstate)} formatMoney={formatMoney}>
             {grouped.realEstate.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}
@@ -320,6 +373,44 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
         )}
 
       </div>
+
+      {/* 🔥 [수정] 댓글 모달 (CSS로 숨김 처리하여 에러 방지) */}
+      <div 
+        className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 transition-opacity duration-200 ${
+          showComments ? "opacity-100 visible" : "opacity-0 invisible pointer-events-none"
+        }`}
+      >
+        {/* 배경 */}
+        <div 
+          className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+          onClick={() => setShowComments(false)}
+        />
+        
+        {/* 모달 컨텐츠 */}
+        <div className={`relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] transition-transform duration-200 ${
+          showComments ? "scale-100" : "scale-95"
+        }`}>
+          {/* 헤더 */}
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
+            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              🗣️ {member.name} 의원 토론장
+            </h3>
+            <button 
+              onClick={() => setShowComments(false)}
+              className="p-2 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          
+          {/* Disqus 영역 */}
+          <div className="p-6 overflow-y-auto bg-slate-50 flex-1">
+            {/* 🔥 이 div는 절대 사라지지 않음 */}
+            <div id="disqus_thread" className="min-h-[300px]"></div>
+          </div>
+        </div>
+      </div>
+
     </main>
   );
 }

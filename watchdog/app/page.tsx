@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import Script from "next/script"; // 🔥 애드센스용 스크립트 컴포넌트 추가
+import Script from "next/script";
 
-// 1. 재산 데이터 구조
+// ✅ 설정: Disqus Shortname
+const DISQUS_SHORTNAME = "ni-eolma"; 
+
+// 1. 데이터 구조
 interface RawAssetItem {
   type: string;
   description: string;
@@ -17,7 +20,6 @@ interface RawAssetMember {
   assets: RawAssetItem[];
 }
 
-// 2. 인물 정보 데이터 구조
 interface RawProfile {
   NAAS_NM: string;       
   PLPT_NM: string;       
@@ -26,7 +28,6 @@ interface RawProfile {
   STATUS_NM: string;     
 }
 
-// 3. 화면 구조 (카테고리별 자산 추가)
 interface Member {
   id: string;
   name: string;
@@ -34,35 +35,33 @@ interface Member {
   district: string;
   imageUrl: string;
   
-  totalAssets: number; // 순자산 (자산 - 부채)
-  realEstate: number;  // 부동산 (토지 + 건물)
-  cars: number;        // 자동차
-  financial: number;   // 현금성 (예금 + 증권 + 현금)
-  debt: number;        // 부채 (절대값)
+  totalAssets: number;
+  realEstate: number;
+  cars: number;
+  financial: number;
+  debt: number;
 
   changeAmount: number;
   changeRate: number;
 }
 
-// 탭 타입 정의
 type TabType = "total" | "realEstate" | "cars" | "financial" | "debt";
 
-// 캐싱 변수
 let cachedMembers: Member[] | null = null;
 
 export default function Home() {
   const [searchTerm, setSearchTerm] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  // 🔥 현재 선택된 랭킹 탭 (기본값: 순자산)
   const [activeTab, setActiveTab] = useState<TabType>("total");
+
+  // 🔥 [핵심] 댓글 수 감지용 Observer Ref
+  const observerRef = useRef<MutationObserver | null>(null);
 
   useEffect(() => {
     if (cachedMembers) {
       setMembers(cachedMembers);
       setLoading(false);
-      setTimeout(() => {}, 0);
       return;
     }
 
@@ -90,8 +89,7 @@ export default function Home() {
           let cars = 0;
           let financial = 0;
           let debt = 0;
-          let totalAssets = 0; // 순자산
-
+          let totalAssets = 0;
           let prevTotal = 0;
 
           person.assets.forEach((item) => {
@@ -100,31 +98,26 @@ export default function Home() {
             const val = item.current_value;
             const prev = item.previous_value;
 
-            // 1. 부채 판별 (가장 먼저 체크)
             if (t.includes("채무") || d.includes("채무")) {
-              debt += val; // 부채는 양수로 누적 (나중에 뺄셈)
+              debt += val;
               totalAssets -= val;
               prevTotal -= prev;
             } 
-            // 2. 부동산 (건물, 토지)
             else if (t.includes("건물") || t.includes("토지") || t.includes("부동산")) {
               realEstate += val;
               totalAssets += val;
               prevTotal += prev;
             }
-            // 3. 자동차
             else if (t.includes("자동차") || t.includes("차량") || t.includes("승용차")) {
               cars += val;
               totalAssets += val;
               prevTotal += prev;
             }
-            // 4. 현금성 (예금, 증권, 현금, 채권)
             else if (t.includes("예금") || t.includes("증권") || t.includes("현금") || t.includes("채권")) {
               financial += val;
               totalAssets += val;
               prevTotal += prev;
             }
-            // 5. 기타 자산 (골동품, 회원권 등)
             else {
               totalAssets += val;
               prevTotal += prev;
@@ -142,19 +135,10 @@ export default function Home() {
             party: profile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
             district: profile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
             imageUrl: profile?.NAAS_PIC || "",
-            
-            totalAssets,
-            realEstate,
-            cars,
-            financial,
-            debt,
-
-            changeAmount,
-            changeRate,
+            totalAssets, realEstate, cars, financial, debt, changeAmount, changeRate,
           };
         });
 
-        // 초기 정렬: 순자산 순
         processed.sort((a, b) => b.totalAssets - a.totalAssets);
         
         cachedMembers = processed;
@@ -168,33 +152,15 @@ export default function Home() {
     fetchData();
   }, []);
 
-  const formatMoney = (amount: number) => {
-    const realAmount = amount * 1000; 
-    if (realAmount === 0) return "0원";
-    const uk = Math.floor(realAmount / 100000000);
-    const rest = realAmount % 100000000;
-    const man = Math.floor(rest / 10000);
-    
-    const sign = realAmount < 0 ? "-" : "";
-    const absUk = Math.abs(uk);
-    const absMan = Math.abs(man);
-
-    if (absUk > 0) return `${sign}${absUk}억 ${absMan > 0 ? absMan + "만" : ""}원`;
-    return `${sign}${absMan}만원`;
-  };
-
-  // 탭 변경 시 정렬 로직
-  const getSortedMembers = () => {
+  const sortedMembers = (() => {
     let sorted = [...members];
     if (activeTab === "total") sorted.sort((a, b) => b.totalAssets - a.totalAssets);
     else if (activeTab === "realEstate") sorted.sort((a, b) => b.realEstate - a.realEstate);
     else if (activeTab === "cars") sorted.sort((a, b) => b.cars - a.cars);
     else if (activeTab === "financial") sorted.sort((a, b) => b.financial - a.financial);
-    else if (activeTab === "debt") sorted.sort((a, b) => b.debt - a.debt); // 빚은 많은 순서대로
+    else if (activeTab === "debt") sorted.sort((a, b) => b.debt - a.debt);
     return sorted;
-  };
-
-  const sortedMembers = getSortedMembers();
+  })();
 
   const filteredMembers = sortedMembers.filter((member) =>
     member.name.includes(searchTerm) || 
@@ -202,25 +168,78 @@ export default function Home() {
     member.district.includes(searchTerm)
   );
 
+  // 🔥 [핵심 기능] Disqus가 댓글 수를 업데이트하면 감지해서 스타일 변경
+  useEffect(() => {
+    // 1. Disqus 리셋
+    // @ts-ignore
+    if (window.DISQUSWIDGETS) {
+      // @ts-ignore
+      window.DISQUSWIDGETS.getCount({ reset: true });
+    }
+
+    // 2. MutationObserver 설정 (댓글 수가 0이 아니면 'has-comments' 클래스 추가)
+    if (observerRef.current) observerRef.current.disconnect();
+
+    observerRef.current = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'characterData') {
+          const target = mutation.target as HTMLElement;
+          // 텍스트에서 숫자만 추출
+          const countText = target.textContent || "0";
+          const count = parseInt(countText.replace(/[^0-9]/g, "") || "0", 10);
+          
+          // 부모 요소 찾기 (badge-container)
+          const container = target.closest('.comment-badge-container');
+          
+          if (container) {
+            if (count > 0) {
+              container.classList.add('active-comments'); // 활성 상태 클래스
+              container.classList.remove('no-comments');
+            } else {
+              container.classList.add('no-comments');
+              container.classList.remove('active-comments');
+            }
+          }
+        }
+      });
+    });
+
+    // 3. 감시 시작 (조금 기다렸다가 요소가 렌더링되면 붙임)
+    setTimeout(() => {
+      const elements = document.querySelectorAll('.disqus-comment-count');
+      elements.forEach(el => {
+        observerRef.current?.observe(el, { childList: true, subtree: true, characterData: true });
+      });
+    }, 500);
+
+    return () => observerRef.current?.disconnect();
+  }, [filteredMembers, activeTab]); 
+
+  const formatMoney = (amount: number) => {
+    const realAmount = amount * 1000; 
+    if (realAmount === 0) return "0원";
+    const uk = Math.floor(Math.abs(realAmount) / 100000000);
+    const man = Math.floor((Math.abs(realAmount) % 100000000) / 10000);
+    const sign = realAmount < 0 ? "-" : "";
+    if (uk > 0) return `${sign}${uk}억 ${man > 0 ? man + "만" : ""}원`;
+    return `${sign}${man}만원`;
+  };
+
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
   const scrollToBottom = () => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 
-  // 탭 버튼 스타일 헬퍼
   const getTabStyle = (tab: TabType) => {
     const base = "px-4 py-2 rounded-full text-sm font-bold transition-all border ";
-    if (activeTab === tab) {
-      return base + "bg-slate-900 text-white border-slate-900 shadow-md transform scale-105";
-    }
+    if (activeTab === tab) return base + "bg-slate-900 text-white border-slate-900 shadow-md transform scale-105";
     return base + "bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:text-slate-700";
   };
 
-  // 현재 탭에 따라 보여줄 금액과 라벨 계산
   const getDisplayValue = (member: Member) => {
     switch (activeTab) {
       case "realEstate": return { label: "부동산 자산", value: member.realEstate, icon: "🏢" };
       case "cars": return { label: "자동차 자산", value: member.cars, icon: "🚗" };
       case "financial": return { label: "현금성 자산", value: member.financial, icon: "💵" };
-      case "debt": return { label: "총 부채", value: -member.debt, icon: "💸" }; // 부채는 마이너스로 표시
+      case "debt": return { label: "총 부채", value: -member.debt, icon: "💸" };
       default: return { label: "순자산 (빚 제외)", value: member.totalAssets, icon: "💰" };
     }
   };
@@ -228,7 +247,30 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center relative">
       
-      {/* 🔥 1. 애드센스 스크립트 (Next.js 최적화 방식) */}
+      {/* 글로벌 스타일 추가 (동적 클래스용) */}
+      <style jsx global>{`
+        .comment-badge-container {
+          transition: all 0.3s ease;
+        }
+        /* 댓글이 없을 때 (기본) */
+        .comment-badge-container.no-comments {
+          background-color: #f1f5f9; /* slate-100 */
+          color: #94a3b8; /* slate-400 */
+        }
+        /* 댓글이 있을 때 (강조) */
+        .comment-badge-container.active-comments {
+          background-color: #1e293b; /* slate-800 */
+          color: white;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          transform: scale(1.02);
+        }
+        /* 댓글 있을 때만 보이는 아이콘들 */
+        .active-icon, .new-badge { display: none; }
+        .active-comments .active-icon { display: inline-block; }
+        .active-comments .new-badge { display: inline-block; }
+        .active-comments .default-icon { display: none; }
+      `}</style>
+
       <Script
         async
         src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1019593213463092"
@@ -236,7 +278,13 @@ export default function Home() {
         strategy="afterInteractive"
       />
 
-      {/* 2. 상단 타이틀 */}
+      <Script
+        id="dsq-count-scr"
+        src={`//${DISQUS_SHORTNAME}.disqus.com/count.js`}
+        strategy="lazyOnload"
+      />
+
+      {/* 상단 타이틀 */}
       <div className="w-full bg-slate-50 pt-16 pb-8 px-4 flex flex-col items-center justify-center border-b border-slate-200">
         <p className="font-mono text-sm mb-4 text-slate-500">
           🕵️‍♀️ 국회의원 재산 감시 프로젝트 <span className="font-bold text-slate-800">WatchDog</span>
@@ -249,10 +297,8 @@ export default function Home() {
         </h1>
       </div>
 
-      {/* 3. 탭 & 검색창 (Sticky) */}
+      {/* 탭 & 검색창 */}
       <div className="sticky top-0 z-50 w-full bg-slate-50/90 backdrop-blur-md border-b border-slate-200 py-4 px-4 flex flex-col items-center shadow-sm gap-4">
-        
-        {/* 검색창 */}
         <div className="w-full max-w-lg relative">
           <div className="absolute left-3 top-3 text-xl">🔍</div>
           <input 
@@ -263,8 +309,6 @@ export default function Home() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-
-        {/* 랭킹 탭 */}
         <div className="flex gap-2 overflow-x-auto w-full max-w-2xl justify-start sm:justify-center pb-2 sm:pb-0 scrollbar-hide">
           <button onClick={() => setActiveTab("total")} className={getTabStyle("total")}>순자산 💰</button>
           <button onClick={() => setActiveTab("realEstate")} className={getTabStyle("realEstate")}>부동산 🏢</button>
@@ -274,7 +318,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 4. 결과 리스트 */}
+      {/* 결과 리스트 */}
       <div className="w-full max-w-6xl p-4 sm:p-10 pb-10">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
@@ -298,7 +342,6 @@ export default function Home() {
               return (
                 <Link href={`/member/${member.name}`} key={member.id} scroll={true}>
                   <div className="rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full">
-                    {/* 상단 띠 */}
                     <div className={`h-2 w-full ${
                       member.party.includes("국민의힘") ? 'bg-red-600' : 
                       member.party.includes("민주당") ? 'bg-blue-600' : 
@@ -306,7 +349,6 @@ export default function Home() {
                       member.party.includes("개혁") ? 'bg-orange-500' : 'bg-slate-500'
                     }`} />
                     
-                    {/* 프로필 */}
                     <div className="flex flex-col p-6 pb-2">
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-4">
@@ -332,7 +374,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* 재산 정보 (동적 변경) */}
                     <div className="p-6 pt-2">
                       <div className={`mt-2 p-3 rounded-lg ${activeTab === 'debt' ? 'bg-red-50' : 'bg-slate-50'}`}>
                         <p className={`text-xs mb-1 ${activeTab === 'debt' ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
@@ -344,7 +385,6 @@ export default function Home() {
                         </div>
                       </div>
                       
-                      {/* 순자산 탭일 때만 증감 표시 */}
                       {activeTab === "total" && (
                         <div className="mt-4 flex justify-between text-sm items-center">
                           <span className="text-slate-500">지난 해 대비</span>
@@ -357,13 +397,29 @@ export default function Home() {
                         </div>
                       )}
                       
-                      {/* 다른 탭일 때는 전체 순자산 참고용 표시 */}
-                      {activeTab !== "total" && (
-                        <div className="mt-4 flex justify-between text-sm items-center border-t pt-3 border-slate-100">
-                          <span className="text-slate-400">전체 순자산</span>
-                          <span className="text-slate-600 font-medium">{formatMoney(member.totalAssets)}</span>
+                      {/* 🔥 [수정] 댓글 수 표시 영역 (Observer가 클래스 조작함) */}
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+                        <div className="comment-badge-container no-comments inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all">
+                          
+                          {/* 아이콘: 댓글 없으면 💬, 있으면 🔥 */}
+                          <span className="default-icon">💬</span>
+                          <span className="active-icon animate-pulse">🔥</span>
+                          
+                          {/* 숫자 (Disqus가 채워넣음) */}
+                          <span 
+                            className="disqus-comment-count"
+                            data-disqus-identifier={member.name} 
+                          >
+                            0 Comments
+                          </span>
+
+                          {/* N 배지 (댓글 있을 때만 보임) */}
+                          <span className="new-badge ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">
+                            N
+                          </span>
                         </div>
-                      )}
+                      </div>
+
                     </div>
                   </div>
                 </Link>
@@ -377,17 +433,13 @@ export default function Home() {
         )}
       </div>
 
-      {/* 플로팅 버튼 */}
       <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-40">
         <button onClick={scrollToTop} className="bg-white p-3 rounded-full shadow-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-blue-600">⬆️</button>
         <button onClick={scrollToBottom} className="bg-white p-3 rounded-full shadow-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-blue-600">⬇️</button>
       </div>
 
-      {/* 🔥 5. 푸터 (Footer) - 데이터 출처 및 개인정보처리방침 */}
       <footer className="w-full bg-slate-900 text-slate-400 py-12 px-4 mt-auto">
         <div className="max-w-4xl mx-auto text-center space-y-6">
-          
-          {/* 사이트 소개 및 데이터 출처 */}
           <div className="space-y-2">
             <h3 className="text-lg font-bold text-white">WatchDog : 대한민국 국회의원 재산 감시</h3>
             <p className="text-sm leading-relaxed text-slate-400">
@@ -400,7 +452,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* 링크 모음 */}
           <div className="pt-6 border-t border-slate-800 flex justify-center gap-6 text-xs">
             <Link href="/privacy" className="hover:text-white transition-colors underline">
               개인정보처리방침
@@ -425,8 +476,6 @@ export default function Home() {
           </p>
         </div>
       </footer>
-
-
     </main>
   );
 }
