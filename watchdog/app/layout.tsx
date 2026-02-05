@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   verification: {
     google: 'JmFVjC8V6iKzCDm2iXz7nsJMwi0DHxZ2PvA6KUeVF-s',
     other: {
-      'naver-site-verification': '네이버에서_준_코드',
+      'naver-site-verification': 'd1fa176ccc0f0a2308546a620e6992e165e208a8',
     },
   },
 };
