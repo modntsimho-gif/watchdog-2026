@@ -54,12 +54,12 @@ export default function PrivacyPage() {
               본 개인정보처리방침과 관련하여 문의사항이 있으신 경우 아래 연락처로 문의 주시기 바랍니다.
             </p>
             <p className="mt-2 font-semibold">
-              이메일: contact@ni-eolma.com (또는 본인의 이메일 주소)
+              이메일: modntsimho@gmail.com
             </p>
           </section>
   
           <div className="pt-8 border-t text-slate-500 text-xs">
-            <p>시행일자: 2024년 5월 20일</p>
+            <p>시행일자: 2026년 2월 05일</p>
           </div>
         </div>
       </main>
