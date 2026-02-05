@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import Script from "next/script"; // 🔥 애드센스용 스크립트 컴포넌트 추가
 
 // 1. 재산 데이터 구조
 interface RawAssetItem {
@@ -227,7 +228,15 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center relative">
       
-      {/* 1. 상단 타이틀 */}
+      {/* 🔥 1. 애드센스 스크립트 (Next.js 최적화 방식) */}
+      <Script
+        async
+        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1019593213463092"
+        crossOrigin="anonymous"
+        strategy="afterInteractive"
+      />
+
+      {/* 2. 상단 타이틀 */}
       <div className="w-full bg-slate-50 pt-16 pb-8 px-4 flex flex-col items-center justify-center border-b border-slate-200">
         <p className="font-mono text-sm mb-4 text-slate-500">
           🕵️‍♀️ 국회의원 재산 감시 프로젝트 <span className="font-bold text-slate-800">WatchDog</span>
@@ -240,7 +249,7 @@ export default function Home() {
         </h1>
       </div>
 
-      {/* 2. 탭 & 검색창 (Sticky) */}
+      {/* 3. 탭 & 검색창 (Sticky) */}
       <div className="sticky top-0 z-50 w-full bg-slate-50/90 backdrop-blur-md border-b border-slate-200 py-4 px-4 flex flex-col items-center shadow-sm gap-4">
         
         {/* 검색창 */}
@@ -265,7 +274,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 3. 결과 리스트 */}
+      {/* 4. 결과 리스트 */}
       <div className="w-full max-w-6xl p-4 sm:p-10 pb-10">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
@@ -374,18 +383,49 @@ export default function Home() {
         <button onClick={scrollToBottom} className="bg-white p-3 rounded-full shadow-lg border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-blue-600">⬇️</button>
       </div>
 
-      {/* 5. 하단 푸터 (이메일 문의) */}
-      <footer className="w-full text-center border-t border-slate-200 py-10 mt-auto bg-slate-100">
-        <p className="text-slate-500 text-sm mb-2">
+      {/* 🔥 5. 푸터 (Footer) - 데이터 출처 및 개인정보처리방침 */}
+      <footer className="w-full bg-slate-900 text-slate-400 py-12 px-4 mt-auto">
+        <div className="max-w-4xl mx-auto text-center space-y-6">
+          
+          {/* 사이트 소개 및 데이터 출처 */}
+          <div className="space-y-2">
+            <h3 className="text-lg font-bold text-white">WatchDog : 대한민국 국회의원 재산 감시</h3>
+            <p className="text-sm leading-relaxed text-slate-400">
+              본 서비스는 대한민국 국회 공직자윤리위원회가 공개한 <br className="hidden sm:block" />
+              <span className="text-slate-300">공직자 재산등록사항 공개 목록(공보)</span>을 기반으로 제작되었습니다.
+            </p>
+            <p className="text-xs text-slate-500 pt-2">
+              모든 데이터는 공공데이터포털 및 국회 공식 자료를 참조하였으며, 정보의 투명성을 위해 제공됩니다.<br/>
+              데이터 처리 과정에서 일부 오차가 발생할 수 있으며, 법적 효력을 갖지 않습니다.
+            </p>
+          </div>
+
+          {/* 링크 모음 */}
+          <div className="pt-6 border-t border-slate-800 flex justify-center gap-6 text-xs">
+            <Link href="/privacy" className="hover:text-white transition-colors underline">
+              개인정보처리방침
+            </Link>
+            <a href="mailto:contact@ni-eolma.com" className="hover:text-white transition-colors">
+              문의하기
+            </a>
+          </div>
+
+          <p className="text-slate-500 text-sm mb-2">
           정정 요청 및 건의사항은 하단 메일로 보내주세요.
-        </p>
-        <a 
+          </p>
+          <a 
           href="mailto:modntsimho@gmail.com" 
           className="text-blue-600 font-bold hover:underline text-lg"
-        >
+          >
           modntsimho@gmail.com
         </a>
+
+          <p className="text-xs text-slate-600">
+            © 2026 WatchDog. All rights reserved.
+          </p>
+        </div>
       </footer>
+
 
     </main>
   );
