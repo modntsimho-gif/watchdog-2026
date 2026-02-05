@@ -33,6 +33,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
+      {/* 👇 head 태그를 직접 열고, 쌩 HTML script 태그를 넣습니다 */}
+      <head>
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1019593213463092"
+          crossOrigin="anonymous"
+        ></script>
+      </head>
       <body>{children}</body>
     </html>
   );
