@@ -108,26 +108,49 @@ export default function Home() {
           const val = item.current_value;
           const prev = item.previous_value;
 
+          // 1. 채무 (가장 먼저 처리)
           if (t.includes("채무") || d.includes("채무")) {
             debt += val;
             totalAssets -= val;
             prevTotal -= prev;
           } 
-          else if (t.includes("건물") || t.includes("토지") || t.includes("부동산")) {
-            realEstate += val;
-            totalAssets += val;
-            prevTotal += prev;
-          }
-          else if (t.includes("자동차") || t.includes("차량") || t.includes("승용차")) {
+          // 2. 자동차
+          else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
             cars += val;
             totalAssets += val;
             prevTotal += prev;
           }
-          else if (t.includes("예금") || t.includes("증권") || t.includes("현금") || t.includes("채권")) {
+          // 3. 부동산 (키워드 대폭 추가!)
+          else if (
+            t.includes("토지") || t.includes("건물") || t.includes("주택") || 
+            t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
+            t.includes("전") || t.includes("답") || t.includes("도로") || 
+            t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
+            t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
+            t.includes("전세") || t.includes("임차") || t.includes("권리") ||
+            t.includes("창고") || d.includes("건물") || d.includes("대지") || 
+            d.includes("임야") || d.includes("아파트") || d.includes("창고") || 
+            d.includes("주택") || d.includes("㎡")
+          ) {
+            realEstate += val;
+            totalAssets += val;
+            prevTotal += prev;
+          }
+          // 4. 금융 (예금, 주식 등)
+          else if (
+            t.includes("예금") || t.includes("증권") || t.includes("채권") || 
+            t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
+            t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
+            t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
+            t.includes("사인간") || t.includes("대여금") || d.includes("은행") || 
+            d.includes("농협") || d.includes("수협") || d.includes("신협") || 
+            d.includes("금융") || d.includes("증권") || d.includes("보험")
+          ) {
             financial += val;
             totalAssets += val;
             prevTotal += prev;
           }
+          // 5. 기타
           else {
             totalAssets += val;
             prevTotal += prev;
