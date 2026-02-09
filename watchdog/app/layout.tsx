@@ -30,7 +30,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const baseKeywords = [
     "국회의원 재산", "국회의원 재산 순위", "국회의원 연봉", 
     "정치인 재산", "22대 국회의원", "국회의원 부동산", 
-    "재산공개", "공직자윤리위원회", "WatchDog"
+    "재산공개", "공직자윤리위원회", "WatchDog" , "국회의원 재산 조회 사이트",
+    "국회의원 재산 공개" , "국회의원 재산 공개 사이트", "국회의원 재산 조회"
   ];
 
   // 4. 최종 메타데이터 반환
