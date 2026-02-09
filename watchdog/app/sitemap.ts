@@ -1,25 +1,51 @@
 import { MetadataRoute } from 'next';
-
-// 데이터를 가져오는 함수 (실제 데이터 경로에 맞춰 수정 필요할 수 있음)
-// 여기서는 하드코딩된 예시나, 외부 fetch를 가정합니다.
-// 빌드 타임에 생성되므로, public 폴더의 json을 읽어오는 로직을 넣거나
-// 일단은 메인 페이지만 등록해도 됩니다.
+import { promises as fs } from 'fs';
+import path from 'path';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = 'https://ni-eolma.com';
 
-  // 1. 메인 페이지
-  const routes = [
+  // 1. 고정 페이지 (메인 페이지)
+  const staticRoutes = [
     {
       url: baseUrl,
       lastModified: new Date(),
       changeFrequency: 'daily' as const,
       priority: 1,
     },
+    // 개인정보처리방침 페이지가 있다면 추가 (없으면 이 부분 지우셔도 됩니다)
+    {
+      url: `${baseUrl}/privacy`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.5,
+    },
   ];
 
-  // 2. (선택사항) 개별 의원 페이지도 검색되게 하려면 여기서 데이터를 불러와서 map을 돌려야 합니다.
-  // 지금은 복잡할 수 있으니 메인 페이지만 확실하게 등록합시다.
-  
-  return routes;
+  // 2. 동적 페이지 (의원별 상세 페이지 자동 생성)
+  let memberRoutes: MetadataRoute.Sitemap = [];
+
+  try {
+    // public 폴더에 있는 JSON 파일을 서버에서 읽어옵니다.
+    const filePath = path.join(process.cwd(), 'public', 'assembly_assets.json');
+    const fileContents = await fs.readFile(filePath, 'utf8');
+    
+    // JSON 파싱 (타입은 name만 있으면 됩니다)
+    const members: { name: string }[] = JSON.parse(fileContents);
+
+    // 의원 수만큼 URL 생성 (예: .../member/이재명)
+    memberRoutes = members.map((member) => ({
+      url: `${baseUrl}/member/${member.name}`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly' as const, // 재산 정보는 매일 바뀌진 않으므로 weekly
+      priority: 0.8, // 메인보다는 낮지만 꽤 중요함
+    }));
+
+  } catch (error) {
+    console.error('사이트맵 생성 중 파일 읽기 실패:', error);
+    // 에러가 나더라도 메인 페이지는 반환해야 함
+  }
+
+  // 고정 페이지와 의원 페이지를 합쳐서 반환
+  return [...staticRoutes, ...memberRoutes];
 }

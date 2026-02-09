@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Script from "next/script";
+import Image from "next/image"; // ✅ 1. Image 컴포넌트 임포트
 import { createClient } from "@supabase/supabase-js";
 
 // ✅ 선생님의 Supabase 키설정
@@ -108,19 +109,22 @@ export default function Home() {
           const val = item.current_value;
           const prev = item.previous_value;
 
-          // 1. 채무 (가장 먼저 처리)
+          // 1. 📉 채무 (빚)
           if (t.includes("채무") || d.includes("채무")) {
             debt += val;
-            totalAssets -= val;
+            totalAssets -= val; // 순자산에서는 뺌
             prevTotal -= prev;
           } 
-          // 2. 자동차
-          else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
+          // 2. 🚗 자동차 (선박, 항공기 포함)
+          else if (
+            t.includes("자동차") || t.includes("승용차") || t.includes("차량") ||
+            t.includes("선박") || t.includes("항공기") || t.includes("이륜차")
+          ) {
             cars += val;
             totalAssets += val;
             prevTotal += prev;
           }
-          // 3. 부동산 (키워드 대폭 추가!)
+          // 3. 🏢 부동산 (아파트, 전세권, 상가 등 완벽 포함)
           else if (
             t.includes("토지") || t.includes("건물") || t.includes("주택") || 
             t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
@@ -136,7 +140,7 @@ export default function Home() {
             totalAssets += val;
             prevTotal += prev;
           }
-          // 4. 금융 (예금, 주식 등)
+          // 4. 💰 금융/현금 (예금, 주식, 채권, 빌려준 돈 포함)
           else if (
             t.includes("예금") || t.includes("증권") || t.includes("채권") || 
             t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
@@ -144,14 +148,16 @@ export default function Home() {
             t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
             t.includes("사인간") || t.includes("대여금") || d.includes("은행") || 
             d.includes("농협") || d.includes("수협") || d.includes("신협") || 
-            d.includes("금융") || d.includes("증권") || d.includes("보험")
+            d.includes("금융") || d.includes("증권") || d.includes("보험") ||
+            d.includes("생명") || d.includes("화재") || d.includes("현금")
           ) {
             financial += val;
             totalAssets += val;
             prevTotal += prev;
           }
-          // 5. 기타
+          // 5. 💎 기타 (골프 회원권, 보석, 지식재산권 등)
           else {
+            // 여기로 빠지는 건 '기타 자산'이지만 순자산(Total)에는 포함됨
             totalAssets += val;
             prevTotal += prev;
           }
@@ -265,11 +271,14 @@ export default function Home() {
         <p className="font-mono text-sm mb-4 text-slate-500">
           🕵️‍♀️ 국회의원 재산 감시 프로젝트 <span className="font-bold text-slate-800">WatchDog</span>
         </p>
-        <h2 className="text-4xl font-extrabold tracking-tight lg:text-5xl text-center text-slate-900 mb-4">
-          대한민국 국회의원 
-        </h2>
-        <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl text-center text-slate-900 mb-4">
-          <span className="text-blue-600">너 얼마있어?</span>
+        
+        <h1 className="flex flex-col items-center text-center">
+          <span className="text-4xl font-extrabold tracking-tight lg:text-5xl text-slate-900 mb-4">
+            대한민국 국회의원 재산 순위
+          </span>
+          <span className="text-4xl font-extrabold tracking-tight lg:text-5xl text-blue-600 mb-4">
+            너 얼마있어?
+          </span>
         </h1>
       </div>
 
@@ -315,7 +324,6 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredMembers.map((member, index) => {
               const display = getDisplayValue(member);
-              // ✅ 댓글 개수 가져오기
               const commentCount = commentCounts[member.name] || 0;
               const hasComments = commentCount > 0;
 
@@ -332,9 +340,17 @@ export default function Home() {
                     <div className="flex flex-col p-6 pb-2">
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-4">
-                          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-slate-100 bg-slate-100 flex-shrink-0">
+                          {/* ✅ 2. 이미지 최적화 적용 (relative 추가 + Image 컴포넌트) */}
+                          <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-slate-100 bg-slate-100 flex-shrink-0">
                             {member.imageUrl ? (
-                              <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
+                              <Image 
+                                src={member.imageUrl} 
+                                alt={`${member.name} 국회의원 사진`} 
+                                fill
+                                className="object-cover"
+                                sizes="64px"
+                                loading="lazy"
+                              />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-2xl">👤</div>
                             )}
@@ -377,7 +393,6 @@ export default function Home() {
                         </div>
                       )}
                       
-                      {/* 🔥 [수정] Supabase 댓글 카운트 UI */}
                       <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
                         <div 
                           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
