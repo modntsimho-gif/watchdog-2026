@@ -19,7 +19,9 @@ export async function generateMetadata(): Promise<Metadata> {
       `${m.name} 재산`,
       `${m.name} 부동산`,
       `${m.name} 재산공개`,
-      `${m.name} 아파트`
+      `${m.name} 아파트`,
+      `${m.name} 재산 조회`,
+      `${m.name} 재산 공개`,
     ]);
 
   } catch (e) {
