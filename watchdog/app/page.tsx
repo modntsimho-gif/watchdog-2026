@@ -324,7 +324,7 @@ function HomeContent() {
 
   const getDisplayValue = (member: Member) => {
     switch (activeTab) {
-      case "rank": return { label: "순자산 (의전서열)", value: member.totalAssets, icon: "⚖️" };
+      case "rank": return { label: "순자산 (서열)", value: member.totalAssets, icon: "⚖️" };
       case "realEstate": return { label: "부동산 자산", value: member.realEstate, icon: "🏢" };
       case "cars": return { label: "자동차 자산", value: member.cars, icon: "🚗" };
       case "financial": return { label: "현금성 자산", value: member.financial, icon: "💵" };
@@ -384,7 +384,7 @@ function HomeContent() {
         <div className="flex gap-2 overflow-x-auto w-full max-w-2xl justify-start sm:justify-center pb-2 sm:pb-0 scrollbar-hide px-2">
           {/* 정부 공직자일 때만 '의전서열' 버튼 표시 */}
           {viewType === "government" && (
-            <button onClick={() => setActiveTab("rank")} className={getTabStyle("rank")}>의전서열 ⚖️</button>
+            <button onClick={() => setActiveTab("rank")} className={getTabStyle("rank")}>서열 ⚖️</button>
           )}
           <button onClick={() => setActiveTab("total")} className={getTabStyle("total")}>순자산 💰</button>
           <button onClick={() => setActiveTab("realEstate")} className={getTabStyle("realEstate")}>부동산 🏢</button>
@@ -398,7 +398,7 @@ function HomeContent() {
       <div className="w-full max-w-6xl p-4 sm:p-10 pb-10">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
-            📊 {activeTab === "rank" ? "의전서열 순서" :
+            📊 {activeTab === "rank" ? "서열 순서" :
                 activeTab === "total" ? "전체 랭킹" : 
                 activeTab === "realEstate" ? "부동산 부자 순위" :
                 activeTab === "cars" ? "슈퍼카 순위" :
