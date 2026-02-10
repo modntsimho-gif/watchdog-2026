@@ -3,26 +3,27 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Script from "next/script";
-import Image from "next/image"; // ✅ 1. Image 컴포넌트 임포트
+import Image from "next/image";
 import { createClient } from "@supabase/supabase-js";
+import { useSearchParams, useRouter } from "next/navigation";
 
-// ✅ 선생님의 Supabase 키설정
+// ✅ Supabase 설정
 const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2h3Z2ZndHBzcGl1cGhmd296Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNzEyMDIsImV4cCI6MjA4NTg0NzIwMn0.GEzYz9YaLK8dbWs0dyY4jtiTb6IYl4IORcvQqUm2WWk";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// 1. 데이터 구조
-interface RawAssetItem {
+// --- 1. 데이터 인터페이스 정의 ---
+
+interface AssemblyAssetItem {
   type: string;
   description: string;
   previous_value: number;
   current_value: number;
 }
-
-interface RawAssetMember {
+interface AssemblyMember {
   name: string;
-  assets: RawAssetItem[];
+  assets: AssemblyAssetItem[];
 }
 
 interface RawProfile {
@@ -33,11 +34,12 @@ interface RawProfile {
   STATUS_NM: string;     
 }
 
+// 통합된 멤버 구조
 interface Member {
   id: string;
   name: string;
-  party: string;
-  district: string;
+  party: string;    
+  district: string; 
   imageUrl: string;
   
   totalAssets: number;
@@ -46,174 +48,246 @@ interface Member {
   financial: number;
   debt: number;
 
-  changeAmount: number;
+  changeAmount: number; 
   changeRate: number;
+  isGov?: boolean;
+  
+  // ✅ JSON 원본 순서 (의전서열용)
+  originalIndex: number; 
 }
 
-type TabType = "total" | "realEstate" | "cars" | "financial" | "debt";
+type TabType = "total" | "realEstate" | "cars" | "financial" | "debt" | "rank";
+type ViewType = "assembly" | "government"; 
 
-let cachedMembers: Member[] | null = null;
+let cachedAssembly: Member[] | null = null;
+let cachedGovernment: Member[] | null = null;
 
 export default function Home() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // URL 파라미터 확인
+  const initialView = (searchParams.get("view") as ViewType) || "assembly";
+
+  const [viewType, setViewType] = useState<ViewType>(initialView);
   const [searchTerm, setSearchTerm] = useState("");
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<TabType>("total");
   
-  // ✅ 댓글 개수 저장용 State (이름 -> 개수)
+  // ✅ [수정 1] 초기 탭 설정: 정부 모드면 'rank'(의전서열), 국회면 'total'(순자산)
+  const [activeTab, setActiveTab] = useState<TabType>(
+    initialView === "government" ? "rank" : "total"
+  );
+  
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    // 1. 의원 데이터 로딩 (캐시 확인)
-    if (cachedMembers) {
-      setMembers(cachedMembers);
-      setLoading(false);
-    } else {
-      fetchMemberData();
-    }
-
-    // 2. ✅ Supabase에서 댓글 개수 가져오기
+    fetchData(viewType);
     fetchCommentCounts();
-  }, []);
+    // useEffect 내부의 탭 리셋 로직은 제거함 (toggleViewType에서 처리)
+  }, [viewType]);
 
-  async function fetchMemberData() {
+  // ✅ [수정 2] 모드 전환 시 탭 강제 변경
+  const toggleViewType = () => {
+    const newType = viewType === "assembly" ? "government" : "assembly";
+    setViewType(newType);
+    
+    // 정부로 가면 '의전서열', 국회로 가면 '순자산'을 기본으로 설정
+    setActiveTab(newType === "government" ? "rank" : "total");
+
+    router.replace(`/?view=${newType}`, { scroll: false });
+  };
+
+  async function fetchData(type: ViewType) {
+    setLoading(true);
+    setMembers([]); 
+
     try {
-      const [assetsRes, profilesRes] = await Promise.all([
-        fetch("/assembly_assets.json"),
-        fetch("/members_info.json"),
-      ]);
-
-      if (!assetsRes.ok || !profilesRes.ok) throw new Error("파일 로딩 실패");
-
-      const rawAssets: RawAssetMember[] = await assetsRes.json();
-      const rawProfiles: RawProfile[] = await profilesRes.json();
-
-      const profileMap = new Map<string, RawProfile>();
-      rawProfiles.forEach((p) => {
-        if (p.STATUS_NM === "현직의원") {
-            profileMap.set(p.NAAS_NM, p);
+      if (type === "assembly") {
+        // --- [국회의원 데이터] ---
+        if (cachedAssembly) {
+          setMembers(cachedAssembly);
+          setLoading(false);
+          return;
         }
-      });
 
-      const processed = rawAssets.map((person, index) => {
-        let realEstate = 0;
-        let cars = 0;
-        let financial = 0;
-        let debt = 0;
-        let totalAssets = 0;
-        let prevTotal = 0;
+        const [assetsRes, profilesRes] = await Promise.all([
+          fetch("/assembly_assets.json"),
+          fetch("/members_info.json"),
+        ]);
 
-        person.assets.forEach((item) => {
-          const t = item.type;
-          const d = item.description;
-          const val = item.current_value;
-          const prev = item.previous_value;
+        if (!assetsRes.ok || !profilesRes.ok) throw new Error("국회 데이터 로딩 실패");
 
-          // 1. 📉 채무 (빚)
-          if (t.includes("채무") || d.includes("채무")) {
-            debt += val;
-            totalAssets -= val; // 순자산에서는 뺌
-            prevTotal -= prev;
-          } 
-          // 2. 🚗 자동차 (선박, 항공기 포함)
-          else if (
-            t.includes("자동차") || t.includes("승용차") || t.includes("차량") ||
-            t.includes("선박") || t.includes("항공기") || t.includes("이륜차")
-          ) {
-            cars += val;
-            totalAssets += val;
-            prevTotal += prev;
-          }
-          // 3. 🏢 부동산 (아파트, 전세권, 상가 등 완벽 포함)
-          else if (
-            t.includes("토지") || t.includes("건물") || t.includes("주택") || 
-            t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
-            t.includes("전") || t.includes("답") || t.includes("도로") || 
-            t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
-            t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
-            t.includes("전세") || t.includes("임차") || t.includes("권리") ||
-            t.includes("창고") || d.includes("건물") || d.includes("대지") || 
-            d.includes("임야") || d.includes("아파트") || d.includes("창고") || 
-            d.includes("주택") || d.includes("㎡")
-          ) {
-            realEstate += val;
-            totalAssets += val;
-            prevTotal += prev;
-          }
-          // 4. 💰 금융/현금 (예금, 주식, 채권, 빌려준 돈 포함)
-          else if (
-            t.includes("예금") || t.includes("증권") || t.includes("채권") || 
-            t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
-            t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
-            t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
-            t.includes("사인간") || t.includes("대여금") || d.includes("은행") || 
-            d.includes("농협") || d.includes("수협") || d.includes("신협") || 
-            d.includes("금융") || d.includes("증권") || d.includes("보험") ||
-            d.includes("생명") || d.includes("화재") || d.includes("현금")
-          ) {
-            financial += val;
-            totalAssets += val;
-            prevTotal += prev;
-          }
-          // 5. 💎 기타 (골프 회원권, 보석, 지식재산권 등)
-          else {
-            // 여기로 빠지는 건 '기타 자산'이지만 순자산(Total)에는 포함됨
-            totalAssets += val;
-            prevTotal += prev;
-          }
+        const rawAssets: AssemblyMember[] = await assetsRes.json();
+        const rawProfiles: RawProfile[] = await profilesRes.json();
+
+        const profileMap = new Map<string, RawProfile>();
+        rawProfiles.forEach((p) => {
+          if (p.STATUS_NM === "현직의원") profileMap.set(p.NAAS_NM, p);
         });
-        
-        const changeAmount = totalAssets - prevTotal;
-        const changeRate = prevTotal === 0 ? 0 : (changeAmount / prevTotal) * 100;
 
-        const profile = profileMap.get(person.name);
-        
-        return {
-          id: `member-${index}`,
-          name: person.name,
-          party: profile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
-          district: profile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
-          imageUrl: profile?.NAAS_PIC || "",
-          totalAssets, realEstate, cars, financial, debt, changeAmount, changeRate,
-        };
-      });
+        const processed = rawAssets.map((person, index) => {
+          let realEstate = 0, cars = 0, financial = 0, debt = 0, totalAssets = 0, prevTotal = 0;
 
-      processed.sort((a, b) => b.totalAssets - a.totalAssets);
-      
-      cachedMembers = processed;
-      setMembers(processed);
+          person.assets.forEach((item) => {
+            const t = item.type;
+            const d = item.description;
+            const val = item.current_value;
+            const prev = item.previous_value;
+
+            if (t.includes("채무") || d.includes("채무")) {
+              debt += val;
+              totalAssets -= val;
+              prevTotal -= prev;
+            } else if (t.includes("자동차") || t.includes("선박") || t.includes("항공기")) {
+              cars += val;
+              totalAssets += val;
+              prevTotal += prev;
+            } else if (t.includes("토지") || t.includes("건물") || t.includes("아파트") || t.includes("전세") || t.includes("상가")) {
+              realEstate += val;
+              totalAssets += val;
+              prevTotal += prev;
+            } else if (t.includes("예금") || t.includes("증권") || t.includes("채권") || t.includes("현금") || t.includes("주식")) {
+              financial += val;
+              totalAssets += val;
+              prevTotal += prev;
+            } else {
+              totalAssets += val;
+              prevTotal += prev;
+            }
+          });
+
+          const changeAmount = totalAssets - prevTotal;
+          const changeRate = prevTotal === 0 ? 0 : (changeAmount / prevTotal) * 100;
+          const profile = profileMap.get(person.name);
+
+          return {
+            id: `asm-${index}`,
+            name: person.name,
+            party: profile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
+            district: profile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
+            imageUrl: profile?.NAAS_PIC || "",
+            totalAssets, realEstate, cars, financial, debt, changeAmount, changeRate,
+            isGov: false,
+            originalIndex: index
+          };
+        });
+
+        processed.sort((a, b) => b.totalAssets - a.totalAssets);
+        cachedAssembly = processed;
+        setMembers(processed);
+
+      } else {
+        // --- [정부 공직자 데이터] ---
+        if (cachedGovernment) {
+           if (cachedGovernment.length > 0 && typeof cachedGovernment[0].originalIndex === 'number') {
+            setMembers(cachedGovernment);
+            setLoading(false);
+            return;
+          }
+        }
+
+        const res = await fetch("/officials_property.json");
+        if (!res.ok) throw new Error("정부 공직자 데이터 로딩 실패");
+        
+        const rawData = await res.json();
+        const officials: any[] = Array.isArray(rawData) ? rawData : (rawData.officials || []);
+
+        const processed = officials.map((person, index) => {
+          let realEstate = 0, cars = 0, financial = 0, debt = 0;
+          let calculatedTotal = 0;
+
+          if (Array.isArray(person.assets)) {
+            person.assets.forEach((item: any) => {
+              let val = item.current_value;
+              if (val === 0 && (item.previous_value > 0 || item.increase > 0)) {
+                val = (item.previous_value || 0) + (item.increase || 0) - (item.decrease || 0);
+              }
+              if (val < 0) val = 0;
+
+              const type = item.type || ""; 
+              const desc = item.description || "";
+
+              if (type.includes("채무") || desc.includes("채무")) {
+                debt += val;
+                calculatedTotal -= val;
+              } else {
+                calculatedTotal += val;
+                
+                if (type.includes("자동차") || type.includes("승용차") || type.includes("선박")) {
+                  cars += val;
+                } else if (
+                  type.includes("토지") || type.includes("임야") || type.includes("대지") || 
+                  type.includes("전") || type.includes("답") || type.includes("도로") ||
+                  type.includes("건물") || type.includes("아파트") || type.includes("주택") || 
+                  type.includes("상가") || type.includes("오피스텔") || type.includes("빌딩") ||
+                  type.includes("전세") || type.includes("임차") || type.includes("분양권") ||
+                  desc.includes("건물") || desc.includes("아파트")
+                ) {
+                  realEstate += val;
+                } else if (
+                  type === "" || 
+                  type.includes("예금") || type.includes("증권") || type.includes("채권") || 
+                  type.includes("주식") || type.includes("현금") || type.includes("보험") ||
+                  desc.includes("은행") || desc.includes("보험") || desc.includes("증권")
+                ) {
+                  financial += val;
+                }
+              }
+            });
+          }
+
+          return {
+            id: `gov-${index}`,
+            name: person.name || "이름없음",
+            party: person.affiliation || "정부",
+            district: person.position || "공직자",
+            imageUrl: "", 
+            totalAssets: calculatedTotal,
+            realEstate,
+            cars,
+            financial,
+            debt,
+            changeAmount: 0,
+            changeRate: 0,
+            isGov: true,
+            originalIndex: index 
+          };
+        });
+
+        // 기본 정렬: 자산순 (데이터 로딩 직후에는 자산순으로 정렬해두고, 렌더링 시 activeTab에 따라 재정렬됨)
+        processed.sort((a, b) => b.totalAssets - a.totalAssets);
+        cachedGovernment = processed;
+        setMembers(processed);
+      }
+
       setLoading(false);
     } catch (error) {
-      console.error("에러:", error);
+      console.error("데이터 로딩 에러:", error);
       setLoading(false);
     }
   }
 
-  // ✅ Supabase 댓글 카운트 함수
   async function fetchCommentCounts() {
     try {
-      // 모든 댓글의 member_name만 가져옴 (데이터 절약)
-      const { data, error } = await supabase
-        .from("comments")
-        .select("member_name");
-
+      const { data, error } = await supabase.from("comments").select("member_name");
       if (error) throw error;
-
-      // 이름별 개수 세기
       const counts: Record<string, number> = {};
       data?.forEach((row) => {
         counts[row.member_name] = (counts[row.member_name] || 0) + 1;
       });
-
       setCommentCounts(counts);
     } catch (err) {
       console.error("댓글 카운트 로딩 실패:", err);
     }
   }
 
+  // ✅ 정렬 로직
   const sortedMembers = (() => {
     let sorted = [...members];
-    if (activeTab === "total") sorted.sort((a, b) => b.totalAssets - a.totalAssets);
+    // 의전서열: originalIndex 오름차순
+    if (activeTab === "rank") sorted.sort((a, b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0));
+    else if (activeTab === "total") sorted.sort((a, b) => b.totalAssets - a.totalAssets);
     else if (activeTab === "realEstate") sorted.sort((a, b) => b.realEstate - a.realEstate);
     else if (activeTab === "cars") sorted.sort((a, b) => b.cars - a.cars);
     else if (activeTab === "financial") sorted.sort((a, b) => b.financial - a.financial);
@@ -241,13 +315,14 @@ export default function Home() {
   const scrollToBottom = () => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
 
   const getTabStyle = (tab: TabType) => {
-    const base = "px-4 py-2 rounded-full text-sm font-bold transition-all border ";
+    const base = "px-4 py-2 rounded-full text-sm font-bold transition-all border whitespace-nowrap ";
     if (activeTab === tab) return base + "bg-slate-900 text-white border-slate-900 shadow-md transform scale-105";
     return base + "bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:text-slate-700";
   };
 
   const getDisplayValue = (member: Member) => {
     switch (activeTab) {
+      case "rank": return { label: "순자산 (의전서열)", value: member.totalAssets, icon: "⚖️" };
       case "realEstate": return { label: "부동산 자산", value: member.realEstate, icon: "🏢" };
       case "cars": return { label: "자동차 자산", value: member.cars, icon: "🚗" };
       case "financial": return { label: "현금성 자산", value: member.financial, icon: "💵" };
@@ -258,7 +333,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center relative">
-      
       <Script
         async
         src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1019593213463092"
@@ -266,20 +340,31 @@ export default function Home() {
         strategy="afterInteractive"
       />
 
-      {/* 상단 타이틀 */}
+      {/* 상단 타이틀 및 모드 전환 버튼 */}
       <div className="w-full bg-slate-50 pt-16 pb-8 px-4 flex flex-col items-center justify-center border-b border-slate-200">
         <p className="font-mono text-sm mb-4 text-slate-500">
-          🕵️‍♀️ 국회의원 재산 감시 프로젝트 <span className="font-bold text-slate-800">WatchDog</span>
+          🕵️‍♀️ 공직자 재산 감시 프로젝트 <span className="font-bold text-slate-800">WatchDog</span>
         </p>
         
         <h1 className="flex flex-col items-center text-center">
-          <span className="text-4xl font-extrabold tracking-tight lg:text-5xl text-slate-900 mb-4">
-            대한민국 국회의원 재산 순위
+          <span className="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 mb-2">
+            대한민국 {viewType === "assembly" ? "국회의원" : "공직자"} 재산 순위
           </span>
-          <span className="text-4xl font-extrabold tracking-tight lg:text-5xl text-blue-600 mb-4">
+          <span className="text-4xl sm:text-5xl font-extrabold tracking-tight text-blue-600 mb-6">
             너 얼마있어?
           </span>
         </h1>
+
+        <button
+          onClick={toggleViewType}
+          className="group relative inline-flex items-center justify-center px-8 py-3 font-bold text-white transition-all duration-200 bg-indigo-600 font-lg rounded-full hover:bg-indigo-700 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600"
+        >
+          {viewType === "assembly" ? "🏛️ 이재명 정부 공직자 보기" : "🏛️ 국회의원 보기"}
+          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+          </span>
+        </button>
       </div>
 
       {/* 탭 & 검색창 */}
@@ -288,13 +373,17 @@ export default function Home() {
           <div className="absolute left-3 top-3 text-xl">🔍</div>
           <input 
             type="text" 
-            placeholder="이름, 정당, 지역구 검색" 
+            placeholder={viewType === "assembly" ? "이름, 정당, 지역구 검색" : "이름, 소속, 직위 검색"}
             className="flex h-12 w-full rounded-full border border-slate-300 bg-white px-3 py-2 pl-10 text-lg shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 transition-all"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto w-full max-w-2xl justify-start sm:justify-center pb-2 sm:pb-0 scrollbar-hide">
+        <div className="flex gap-2 overflow-x-auto w-full max-w-2xl justify-start sm:justify-center pb-2 sm:pb-0 scrollbar-hide px-2">
+          {/* 정부 공직자일 때만 '의전서열' 버튼 표시 */}
+          {viewType === "government" && (
+            <button onClick={() => setActiveTab("rank")} className={getTabStyle("rank")}>의전서열 ⚖️</button>
+          )}
           <button onClick={() => setActiveTab("total")} className={getTabStyle("total")}>순자산 💰</button>
           <button onClick={() => setActiveTab("realEstate")} className={getTabStyle("realEstate")}>부동산 🏢</button>
           <button onClick={() => setActiveTab("cars")} className={getTabStyle("cars")}>자동차 🚗</button>
@@ -307,7 +396,8 @@ export default function Home() {
       <div className="w-full max-w-6xl p-4 sm:p-10 pb-10">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
-            📊 {activeTab === "total" ? "전체 랭킹" : 
+            📊 {activeTab === "rank" ? "의전서열 순서" :
+                activeTab === "total" ? "전체 랭킹" : 
                 activeTab === "realEstate" ? "부동산 부자 순위" :
                 activeTab === "cars" ? "슈퍼카 순위" :
                 activeTab === "financial" ? "현금왕 순위" : "빚쟁이 순위"} 
@@ -327,50 +417,59 @@ export default function Home() {
               const commentCount = commentCounts[member.name] || 0;
               const hasComments = commentCount > 0;
 
+              // 정당/소속별 색상 바
+              let barColor = 'bg-slate-500';
+              if (viewType === "assembly") {
+                if (member.party.includes("국민의힘")) barColor = 'bg-red-600';
+                else if (member.party.includes("민주당")) barColor = 'bg-blue-600';
+                else if (member.party.includes("조국")) barColor = 'bg-blue-800';
+                else if (member.party.includes("개혁")) barColor = 'bg-orange-500';
+              } else {
+                barColor = 'bg-indigo-500';
+              }
+
+              const rankValue = (member.originalIndex ?? index) + 1;
+
               return (
                 <Link href={`/member/${member.name}`} key={member.id} scroll={true}>
-                  <div className="rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full">
-                    <div className={`h-2 w-full ${
-                      member.party.includes("국민의힘") ? 'bg-red-600' : 
-                      member.party.includes("민주당") ? 'bg-blue-600' : 
-                      member.party.includes("조국") ? 'bg-blue-800' : 
-                      member.party.includes("개혁") ? 'bg-orange-500' : 'bg-slate-500'
-                    }`} />
+                  <div className="rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full flex flex-col">
+                    <div className={`h-2 w-full ${barColor}`} />
                     
                     <div className="flex flex-col p-6 pb-2">
                       <div className="flex justify-between items-start">
                         <div className="flex items-center gap-4">
-                          {/* ✅ 2. 이미지 최적화 적용 (relative 추가 + Image 컴포넌트) */}
                           <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-slate-100 bg-slate-100 flex-shrink-0">
                             {member.imageUrl ? (
                               <Image 
                                 src={member.imageUrl} 
-                                alt={`${member.name} 국회의원 사진`} 
+                                alt={`${member.name} 사진`} 
                                 fill
                                 className="object-cover"
                                 sizes="64px"
                                 loading="lazy"
                               />
                             ) : (
-                              <div className="w-full h-full flex items-center justify-center text-2xl">👤</div>
+                              <div className="w-full h-full flex items-center justify-center text-3xl bg-slate-200 text-slate-400">
+                                {viewType === "assembly" ? "🏛️" : "🏢"}
+                              </div>
                             )}
                           </div>
                           
                           <div>
                             <h3 className="text-xl font-bold flex items-center gap-2 leading-none tracking-tight">
                               <span className="text-slate-500 text-sm font-normal bg-slate-100 px-2 py-0.5 rounded-md">
-                                {index + 1}위
+                                {activeTab === "rank" ? `서열 ${rankValue}위` : `${index + 1}위`}
                               </span>
                               {member.name}
                             </h3>
-                            <p className="text-sm font-semibold text-slate-600 mt-2">{member.party}</p>
-                            <p className="text-xs text-slate-400">{member.district}</p>
+                            <p className="text-sm font-semibold text-slate-600 mt-2 line-clamp-1">{member.party}</p>
+                            <p className="text-xs text-slate-400 line-clamp-1">{member.district}</p>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="p-6 pt-2">
+                    <div className="p-6 pt-2 flex-grow flex flex-col justify-end">
                       <div className={`mt-2 p-3 rounded-lg ${activeTab === 'debt' ? 'bg-red-50' : 'bg-slate-50'}`}>
                         <p className={`text-xs mb-1 ${activeTab === 'debt' ? 'text-red-500 font-bold' : 'text-slate-400'}`}>
                           {display.label}
@@ -381,7 +480,7 @@ export default function Home() {
                         </div>
                       </div>
                       
-                      {activeTab === "total" && (
+                      {activeTab === "total" && member.changeAmount !== 0 && (
                         <div className="mt-4 flex justify-between text-sm items-center">
                           <span className="text-slate-500">지난 해 대비</span>
                           <div className={`flex items-center font-bold ${member.changeAmount >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
@@ -407,11 +506,6 @@ export default function Home() {
                           <span>
                             {commentCount} Comments
                           </span>
-                          {hasComments && (
-                            <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">
-                              N
-                            </span>
-                          )}
                         </div>
                       </div>
 
@@ -436,17 +530,12 @@ export default function Home() {
       <footer className="w-full bg-slate-900 text-slate-400 py-12 px-4 mt-auto">
         <div className="max-w-4xl mx-auto text-center space-y-6">
           <div className="space-y-2">
-            <h3 className="text-lg font-bold text-white">WatchDog : 대한민국 국회의원 재산 감시</h3>
+            <h3 className="text-lg font-bold text-white">WatchDog : 대한민국 공직자 재산 감시</h3>
             <p className="text-sm leading-relaxed text-slate-400">
-              본 서비스는 대한민국 국회 공직자윤리위원회가 공개한 <br className="hidden sm:block" />
-              <span className="text-slate-300">공직자 재산등록사항 공개 목록(공보)</span>을 기반으로 제작되었습니다.
-            </p>
-            <p className="text-xs text-slate-500 pt-2">
-              모든 데이터는 공공데이터포털 및 국회 공식 자료를 참조하였으며, 정보의 투명성을 위해 제공됩니다.<br/>
-              데이터 처리 과정에서 일부 오차가 발생할 수 있으며, 법적 효력을 갖지 않습니다.
+              본 서비스는 대한민국 정부 및 국회 공직자윤리위원회가 공개한 <br className="hidden sm:block" />
+              <span className="text-slate-300">공직자 재산등록사항 공개 목록(관보/공보)</span>을 기반으로 제작되었습니다.
             </p>
           </div>
-
           <div className="pt-6 border-t border-slate-800 flex justify-center gap-6 text-xs">
             <Link href="/privacy" className="hover:text-white transition-colors underline">
               개인정보처리방침
@@ -455,17 +544,12 @@ export default function Home() {
               문의하기
             </a>
           </div>
-
           <p className="text-slate-500 text-sm mb-2">
-          정정 요청 및 건의사항은 하단 메일로 보내주세요.
+            정정 요청 및 건의사항은 하단 메일로 보내주세요.
           </p>
-          <a 
-          href="mailto:modntsimho@gmail.com" 
-          className="text-blue-600 font-bold hover:underline text-lg"
-          >
-          modntsimho@gmail.com
-        </a>
-
+          <a href="mailto:modntsimho@gmail.com" className="text-blue-600 font-bold hover:underline text-lg">
+            modntsimho@gmail.com
+          </a>
           <p className="text-xs text-slate-600">
             © 2026 WatchDog. All rights reserved.
           </p>

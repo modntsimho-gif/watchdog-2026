@@ -4,7 +4,7 @@ import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ 선생님의 Supabase 키설정
+// ✅ Supabase 설정
 const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2h3Z2ZndHBzcGl1cGhmd296Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNzEyMDIsImV4cCI6MjA4NTg0NzIwMn0.GEzYz9YaLK8dbWs0dyY4jtiTb6IYl4IORcvQqUm2WWk";
 
@@ -18,17 +18,20 @@ interface AssetItem {
   type: string;
   description: string;
   previous_value: number;
+  increase?: number; // 정부 데이터용
+  decrease?: number; // 정부 데이터용
   current_value: number;
   reason: string;
 }
 
 interface MemberDetail {
   name: string;
-  party: string;
-  district: string;
+  party: string;    // 정당 또는 소속(정부)
+  district: string; // 지역구 또는 직위(정부)
   imageUrl: string;
   totalAssets: number;
   assets: AssetItem[];
+  isGov?: boolean; // 정부 공직자 여부 플래그
 }
 
 interface GroupedAssets {
@@ -39,8 +42,16 @@ interface GroupedAssets {
   others: AssetItem[];
 }
 
+// 국회의원용
 interface RawAssetMember {
   name: string;
+  assets: AssetItem[];
+}
+
+// 정부 공직자용
+interface GovOfficial {
+  name: string;
+  affiliation: string;
   assets: AssetItem[];
 }
 
@@ -58,7 +69,7 @@ interface Comment {
   nickname: string;
   content: string;
   member_name: string;
-  parent_id: number | null; // ✅ 대댓글용 부모 ID 추가
+  parent_id: number | null;
 }
 
 // --------------------
@@ -85,27 +96,37 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     window.scrollTo(0, 0);
     async function fetchData() {
       try {
-        const [assetsRes, profilesRes] = await Promise.all([
+        // 1. 모든 데이터 소스 병렬 로드
+        const [assemblyRes, profilesRes, govRes] = await Promise.all([
           fetch("/assembly_assets.json"),
           fetch("/members_info.json"),
+          fetch("/officials_property.json")
         ]);
 
-        if (!assetsRes.ok || !profilesRes.ok) throw new Error("데이터 로딩 실패");
+        if (!assemblyRes.ok || !profilesRes.ok || !govRes.ok) throw new Error("데이터 로딩 실패");
 
-        const rawAssets: RawAssetMember[] = await assetsRes.json();
+        const rawAssembly: RawAssetMember[] = await assemblyRes.json();
         const rawProfiles: RawProfile[] = await profilesRes.json();
+        const rawGovData = await govRes.json();
+        const rawGov: GovOfficial[] = Array.isArray(rawGovData) ? rawGovData : (rawGovData.officials || []);
 
-        const targetAsset = rawAssets.find((p) => p.name === decodedName);
-        const targetProfile = rawProfiles.find(
+        // 2. 국회 데이터에서 검색
+        let targetAsset: any = rawAssembly.find((p) => p.name === decodedName);
+        let targetProfile = rawProfiles.find(
           (p) => p.NAAS_NM === decodedName && p.STATUS_NM === "현직의원"
         );
+        let isGov = false;
+
+        // 3. 국회에 없으면 정부 데이터에서 검색
+        if (!targetAsset) {
+          targetAsset = rawGov.find((p) => p.name === decodedName);
+          if (targetAsset) {
+            isGov = true;
+          }
+        }
 
         if (targetAsset) {
-          const total = targetAsset.assets.reduce((sum, item) => {
-            const isDebt = item.type.includes("채무") || item.description.includes("채무");
-            return isDebt ? sum - item.current_value : sum + item.current_value;
-          }, 0);
-
+          // --- 자산 그룹화 및 계산 로직 ---
           const groups: GroupedAssets = {
             realEstate: [],
             financial: [],
@@ -114,56 +135,87 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             others: [],
           };
 
-          targetAsset.assets.forEach((item) => {
-            const t = item.type;
-            const d = item.description;
+          let totalCalculated = 0;
 
-            if (t.includes("채무") || d.includes("채무")) {
-              groups.debt.push(item);
-            } else if (t.includes("자동차") || t.includes("승용차") || t.includes("차량")) {
-              groups.cars.push(item);
-            } else if (
-              t.includes("토지") || t.includes("건물") || t.includes("주택") || 
-              t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
-              t.includes("전") || t.includes("답") || t.includes("도로") || 
-              t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
-              t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
-              t.includes("전세") || t.includes("임차") || t.includes("권리") ||
-              t.includes("창고") || d.includes("건물") || d.includes("대지") || 
-              d.includes("임야") || d.includes("아파트") || d.includes("창고") || 
-              d.includes("주택") || d.includes("㎡")
-            ) {
-              groups.realEstate.push(item);
-            } else if (
-              t.includes("예금") || t.includes("증권") || t.includes("채권") || 
-              t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
-              t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
-              t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
-              t.includes("사인간") || t.includes("대여금") || d.includes("은행") || 
-              d.includes("농협") || d.includes("수협") || d.includes("신협") || 
-              d.includes("금융") || d.includes("증권") || d.includes("보험") || 
-              d.includes("생명") || d.includes("화재") || d.includes("사인간") || 
-              d.includes("채권") || d.includes("대여금") || d.includes("현금")
-            ) {
-              groups.financial.push(item);
-            } else {
-              groups.others.push(item);
+          targetAsset.assets.forEach((item: AssetItem) => {
+            // 🚨 [중요] 현재가액 계산 로직 (정부 데이터 0원 방지)
+            let currentValue = item.current_value;
+            
+            // current_value가 0이고, 증감 내역이 있다면 역산
+            if (currentValue === 0 && (item.previous_value !== 0 || (item.increase || 0) !== 0)) {
+              currentValue = item.previous_value + (item.increase || 0) - (item.decrease || 0);
             }
+            
+            // 계산된 값을 item에 덮어쓰기 (화면 표시용)
+            item.current_value = currentValue;
+
+            const t = item.type || "";
+            const d = item.description || "";
+
+            // 자산 분류
+            let category = "others";
+            
+            if (t.includes("채무") || d.includes("채무")) {
+              category = "debt";
+              totalCalculated -= currentValue; // 부채는 차감
+            } else {
+              totalCalculated += currentValue; // 자산은 합산
+              
+              if (t.includes("자동차") || t.includes("승용차") || t.includes("선박")) {
+                category = "cars";
+              } else if (
+                t.includes("토지") || t.includes("건물") || t.includes("주택") || 
+                t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
+                t.includes("전") || t.includes("답") || t.includes("도로") || 
+                t.includes("과수원") || t.includes("잡종지") || t.includes("목장") ||
+                t.includes("오피스텔") || t.includes("상가") || t.includes("빌라") ||
+                t.includes("전세") || t.includes("임차") || t.includes("권리") ||
+                t.includes("창고") || d.includes("건물") || d.includes("대지") || 
+                d.includes("임야") || d.includes("아파트") || d.includes("창고") || 
+                d.includes("주택") || d.includes("㎡")
+              ) {
+                category = "realEstate";
+              } else if (
+                t === "" || // 타입이 비어있으면 보통 예금
+                t.includes("예금") || t.includes("증권") || t.includes("채권") || 
+                t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
+                t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
+                t.includes("주식") || t.includes("보험") || t.includes("예탁") ||
+                t.includes("사인간") || t.includes("대여금") || d.includes("은행") || 
+                d.includes("농협") || d.includes("수협") || d.includes("신협") || 
+                d.includes("금융") || d.includes("증권") || d.includes("보험") || 
+                d.includes("생명") || d.includes("화재") || d.includes("사인간") || 
+                d.includes("채권") || d.includes("대여금") || d.includes("현금")
+              ) {
+                category = "financial";
+              }
+            }
+
+            // 그룹에 추가
+            if (category === "debt") groups.debt.push(item);
+            else if (category === "cars") groups.cars.push(item);
+            else if (category === "realEstate") groups.realEstate.push(item);
+            else if (category === "financial") groups.financial.push(item);
+            else groups.others.push(item);
           });
 
-          groups.realEstate.sort((a, b) => b.current_value - a.current_value);
-          groups.financial.sort((a, b) => b.current_value - a.current_value);
-          groups.cars.sort((a, b) => b.current_value - a.current_value);
-          groups.debt.sort((a, b) => b.current_value - a.current_value);
-          groups.others.sort((a, b) => b.current_value - a.current_value);
+          // 정렬 (금액 큰 순서)
+          const sortByValue = (a: AssetItem, b: AssetItem) => b.current_value - a.current_value;
+          groups.realEstate.sort(sortByValue);
+          groups.financial.sort(sortByValue);
+          groups.cars.sort(sortByValue);
+          groups.debt.sort(sortByValue);
+          groups.others.sort(sortByValue);
 
+          // 멤버 정보 설정
           setMember({
             name: targetAsset.name,
-            party: targetProfile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
-            district: targetProfile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
-            imageUrl: targetProfile?.NAAS_PIC || "",
-            totalAssets: total,
+            party: isGov ? (targetAsset.affiliation || "정부") : (targetProfile?.PLPT_NM?.split("/").pop()?.trim() || "무소속"),
+            district: isGov ? "공직자" : (targetProfile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음"),
+            imageUrl: isGov ? "" : (targetProfile?.NAAS_PIC || ""),
+            totalAssets: totalCalculated,
             assets: targetAsset.assets,
+            isGov: isGov
           });
           setGrouped(groups);
         }
@@ -216,7 +268,11 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
       <div className="bg-[rgba(255,255,255,0.95)] backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between mb-2">
-            <Link href="/" className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1">
+            {/* 🚨 [수정됨] 뒤로가기 링크에 쿼리 파라미터 추가 */}
+            <Link 
+              href={member?.isGov ? "/?view=government" : "/?view=assembly"} 
+              className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1"
+            >
               ← 목록으로
             </Link>
           </div>
@@ -226,13 +282,16 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
                 {member.imageUrl ? (
                   <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-xl">👤</div>
+                  <div className="w-full h-full flex items-center justify-center text-xl">
+                    {member.isGov ? "🏢" : "👤"}
+                  </div>
                 )}
               </div>
               <div className="min-w-0">
                 <h1 className="text-lg sm:text-xl font-bold text-slate-900 flex items-center gap-2 truncate">
                   {member.name}
                   <span className={`text-[10px] sm:text-xs px-1.5 py-0.5 rounded-full text-white font-normal flex-shrink-0 ${
+                    member.isGov ? 'bg-indigo-500' :
                     member.party.includes("국민의힘") ? 'bg-red-500' : 
                     member.party.includes("민주당") ? 'bg-blue-500' : 
                     member.party.includes("조국") ? 'bg-blue-800' : 
@@ -300,7 +359,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           {/* 헤더 */}
           <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 z-10 bg-white flex-shrink-0">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              🗣️ {member.name} 의원놈의 댓글
+              🗣️ {member.name} {member.isGov ? "공직자" : "의원"}의 댓글
             </h3>
             <button 
               onClick={() => setShowComments(false)}
