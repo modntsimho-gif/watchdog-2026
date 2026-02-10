@@ -46,17 +46,18 @@ interface Member {
   realEstate: number;
   cars: number;
   financial: number;
+  virtual: number; // ✅ 가상자산 추가
   debt: number;
 
   changeAmount: number; 
   changeRate: number;
   isGov?: boolean;
   
-  // ✅ JSON 원본 순서 (의전서열용)
   originalIndex: number; 
 }
 
-type TabType = "total" | "realEstate" | "cars" | "financial" | "debt" | "rank";
+// ✅ 탭 타입에 'virtual' 추가
+type TabType = "total" | "realEstate" | "cars" | "financial" | "virtual" | "debt" | "rank";
 type ViewType = "assembly" | "government"; 
 
 let cachedAssembly: Member[] | null = null;
@@ -77,7 +78,6 @@ function HomeContent() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // 초기 탭 설정
   const [activeTab, setActiveTab] = useState<TabType>(
     initialView === "government" ? "rank" : "total"
   );
@@ -89,7 +89,6 @@ function HomeContent() {
     fetchCommentCounts();
   }, [viewType]);
 
-  // 모드 전환
   const toggleViewType = () => {
     const newType = viewType === "assembly" ? "government" : "assembly";
     setViewType(newType);
@@ -125,7 +124,7 @@ function HomeContent() {
         });
 
         const processed = rawAssets.map((person, index) => {
-          let realEstate = 0, cars = 0, financial = 0, debt = 0, totalAssets = 0, prevTotal = 0;
+          let realEstate = 0, cars = 0, financial = 0, virtual = 0, debt = 0, totalAssets = 0, prevTotal = 0;
 
           person.assets.forEach((item) => {
             const t = item.type;
@@ -139,6 +138,11 @@ function HomeContent() {
               prevTotal -= prev;
             } else if (t.includes("자동차") || t.includes("선박") || t.includes("항공기")) {
               cars += val;
+              totalAssets += val;
+              prevTotal += prev;
+            } else if (t.includes("가상자산") || t.includes("암호화폐") || d.includes("가상자산")) {
+              // ✅ 가상자산 분류 로직
+              virtual += val;
               totalAssets += val;
               prevTotal += prev;
             } else if (t.includes("토지") || t.includes("건물") || t.includes("아파트") || t.includes("전세") || t.includes("상가")) {
@@ -165,7 +169,7 @@ function HomeContent() {
             party: profile?.PLPT_NM?.split("/").pop()?.trim() || "무소속",
             district: profile?.ELECD_NM?.split("/").pop()?.trim() || "정보없음",
             imageUrl: profile?.NAAS_PIC || "",
-            totalAssets, realEstate, cars, financial, debt, changeAmount, changeRate,
+            totalAssets, realEstate, cars, financial, virtual, debt, changeAmount, changeRate,
             isGov: false,
             originalIndex: index
           };
@@ -191,7 +195,7 @@ function HomeContent() {
         const officials: any[] = Array.isArray(rawData) ? rawData : (rawData.officials || []);
 
         const processed = officials.map((person, index) => {
-          let realEstate = 0, cars = 0, financial = 0, debt = 0;
+          let realEstate = 0, cars = 0, financial = 0, virtual = 0, debt = 0;
           let calculatedTotal = 0;
 
           if (Array.isArray(person.assets)) {
@@ -213,6 +217,9 @@ function HomeContent() {
                 
                 if (type.includes("자동차") || type.includes("승용차") || type.includes("선박")) {
                   cars += val;
+                } else if (type.includes("가상자산") || type.includes("암호화폐") || desc.includes("가상자산")) {
+                  // ✅ 정부 데이터 가상자산 분류
+                  virtual += val;
                 } else if (
                   type.includes("토지") || type.includes("임야") || type.includes("대지") || 
                   type.includes("전") || type.includes("답") || type.includes("도로") ||
@@ -244,6 +251,7 @@ function HomeContent() {
             realEstate,
             cars,
             financial,
+            virtual,
             debt,
             changeAmount: 0,
             changeRate: 0,
@@ -278,6 +286,7 @@ function HomeContent() {
     }
   }
 
+  // ✅ 정렬 로직에 virtual 추가
   const sortedMembers = (() => {
     let sorted = [...members];
     if (activeTab === "rank") sorted.sort((a, b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0));
@@ -285,6 +294,7 @@ function HomeContent() {
     else if (activeTab === "realEstate") sorted.sort((a, b) => b.realEstate - a.realEstate);
     else if (activeTab === "cars") sorted.sort((a, b) => b.cars - a.cars);
     else if (activeTab === "financial") sorted.sort((a, b) => b.financial - a.financial);
+    else if (activeTab === "virtual") sorted.sort((a, b) => b.virtual - a.virtual); // ✅ 코인 정렬
     else if (activeTab === "debt") sorted.sort((a, b) => b.debt - a.debt);
     return sorted;
   })();
@@ -320,6 +330,7 @@ function HomeContent() {
       case "realEstate": return { label: "부동산 자산", value: member.realEstate, icon: "🏢" };
       case "cars": return { label: "자동차 자산", value: member.cars, icon: "🚗" };
       case "financial": return { label: "현금성 자산", value: member.financial, icon: "💵" };
+      case "virtual": return { label: "가상자산 (코인)", value: member.virtual, icon: "🪙" }; // ✅ 표시 로직
       case "debt": return { label: "총 부채", value: -member.debt, icon: "💸" };
       default: return { label: "순자산 (빚 제외)", value: member.totalAssets, icon: "💰" };
     }
@@ -381,6 +392,7 @@ function HomeContent() {
           <button onClick={() => setActiveTab("realEstate")} className={getTabStyle("realEstate")}>부동산 🏢</button>
           <button onClick={() => setActiveTab("cars")} className={getTabStyle("cars")}>자동차 🚗</button>
           <button onClick={() => setActiveTab("financial")} className={getTabStyle("financial")}>현금부자 💵</button>
+          <button onClick={() => setActiveTab("virtual")} className={getTabStyle("virtual")}>코인왕 🪙</button>
           <button onClick={() => setActiveTab("debt")} className={getTabStyle("debt")}>빚쟁이 📉</button>
         </div>
       </div>
@@ -393,7 +405,8 @@ function HomeContent() {
                 activeTab === "total" ? "전체 랭킹" : 
                 activeTab === "realEstate" ? "부동산 부자 순위" :
                 activeTab === "cars" ? "슈퍼카 순위" :
-                activeTab === "financial" ? "현금왕 순위" : "빚쟁이 순위"} 
+                activeTab === "financial" ? "현금왕 순위" : 
+                activeTab === "virtual" ? "코인왕 순위" : "빚쟁이 순위"} 
             <span className="text-slate-400 text-lg font-normal ml-2">(Top {filteredMembers.length})</span>
           </h2>
         </div>
@@ -421,8 +434,6 @@ function HomeContent() {
               }
 
               const rankValue = (member.originalIndex ?? index) + 1;
-
-              // ✅ [핵심 수정] 링크에 type 파라미터 추가 (?type=assembly or ?type=government)
               const typeParam = member.isGov ? "government" : "assembly";
 
               return (

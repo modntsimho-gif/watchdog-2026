@@ -3,7 +3,7 @@
 import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
-import { useSearchParams } from "next/navigation"; // ✅ URL 파라미터 읽기 위해 추가
+import { useSearchParams } from "next/navigation";
 
 // ✅ Supabase 설정
 const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
@@ -19,8 +19,8 @@ interface AssetItem {
   type: string;
   description: string;
   previous_value: number;
-  increase?: number; 
-  decrease?: number; 
+  increase?: number;
+  decrease?: number;
   current_value: number;
   reason: string;
 }
@@ -38,6 +38,7 @@ interface MemberDetail {
 interface GroupedAssets {
   realEstate: AssetItem[];
   financial: AssetItem[];
+  virtual: AssetItem[]; // ✅ 가상자산 그룹 추가
   cars: AssetItem[];
   debt: AssetItem[];
   others: AssetItem[];
@@ -76,13 +77,14 @@ interface Comment {
 // --------------------
 export default function MemberDetail({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params);
-  const searchParams = useSearchParams(); // ✅ 쿼리 파라미터 훅 사용
-  const typeParam = searchParams.get("type"); // 'assembly' or 'government'
+  const searchParams = useSearchParams();
+  const typeParam = searchParams.get("type");
   
   const [member, setMember] = useState<MemberDetail | null>(null);
   const [grouped, setGrouped] = useState<GroupedAssets>({
     realEstate: [],
     financial: [],
+    virtual: [], // ✅ 초기화
     cars: [],
     debt: [],
     others: [],
@@ -113,17 +115,14 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
         let targetAsset: any = null;
         let isGov = false;
 
-        // ✅ [핵심 로직 수정] type 파라미터에 따라 검색 대상 분리 (동명이인 해결)
+        // 타입에 따른 데이터 검색
         if (typeParam === "government") {
-          // 정부 공직자만 검색
           targetAsset = rawGov.find((p) => p.name === decodedName);
           isGov = true;
         } else if (typeParam === "assembly") {
-          // 국회의원만 검색
           targetAsset = rawAssembly.find((p) => p.name === decodedName);
           isGov = false;
         } else {
-          // (기존 방식 fallback) 파라미터 없으면 국회 먼저 찾고 없으면 정부
           targetAsset = rawAssembly.find((p) => p.name === decodedName);
           if (!targetAsset) {
             targetAsset = rawGov.find((p) => p.name === decodedName);
@@ -131,7 +130,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           }
         }
 
-        // 프로필 정보 (국회의원인 경우만)
         let targetProfile = null;
         if (!isGov) {
           targetProfile = rawProfiles.find(
@@ -143,6 +141,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           const groups: GroupedAssets = {
             realEstate: [],
             financial: [],
+            virtual: [],
             cars: [],
             debt: [],
             others: [],
@@ -170,6 +169,9 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
               
               if (t.includes("자동차") || t.includes("승용차") || t.includes("선박")) {
                 category = "cars";
+              } else if (t.includes("가상자산") || t.includes("암호화폐") || d.includes("가상자산")) {
+                // ✅ 가상자산 분류 로직 추가
+                category = "virtual";
               } else if (
                 t.includes("토지") || t.includes("건물") || t.includes("주택") || 
                 t.includes("아파트") || t.includes("대지") || t.includes("임야") || 
@@ -200,6 +202,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 
             if (category === "debt") groups.debt.push(item);
             else if (category === "cars") groups.cars.push(item);
+            else if (category === "virtual") groups.virtual.push(item); // ✅ 추가
             else if (category === "realEstate") groups.realEstate.push(item);
             else if (category === "financial") groups.financial.push(item);
             else groups.others.push(item);
@@ -208,6 +211,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           const sortByValue = (a: AssetItem, b: AssetItem) => b.current_value - a.current_value;
           groups.realEstate.sort(sortByValue);
           groups.financial.sort(sortByValue);
+          groups.virtual.sort(sortByValue); // ✅ 정렬
           groups.cars.sort(sortByValue);
           groups.debt.sort(sortByValue);
           groups.others.sort(sortByValue);
@@ -230,7 +234,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
       }
     }
     fetchData();
-  }, [decodedName, typeParam]); // ✅ typeParam이 변경되면 데이터를 다시 로드
+  }, [decodedName, typeParam]);
 
   // 모달 스크롤 방지
   useEffect(() => {
@@ -325,17 +329,26 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
         <div className="grid grid-cols-2 gap-3">
           <SummaryCard title="🏢 부동산" amount={getGroupTotal(grouped.realEstate)} color="text-slate-700" bg="bg-white" onClick={() => scrollToSection("section-realestate")} />
           <SummaryCard title="💰 예금/증권/현금" amount={getGroupTotal(grouped.financial)} color="text-blue-600" bg="bg-[rgba(239,246,255,0.6)]" onClick={() => scrollToSection("section-financial")} />
-          {grouped.cars.length > 0 ? (
+          
+          {/* ✅ 가상자산 우선 표시 */}
+          {grouped.virtual.length > 0 ? (
+            <SummaryCard title="🪙 가상자산" amount={getGroupTotal(grouped.virtual)} color="text-purple-600" bg="bg-purple-50" onClick={() => scrollToSection("section-virtual")} />
+          ) : grouped.cars.length > 0 ? (
             <SummaryCard title="🚗 자동차" amount={getGroupTotal(grouped.cars)} color="text-slate-600" bg="bg-white" onClick={() => scrollToSection("section-cars")} />
           ) : (
              <SummaryCard title="💎 기타자산" amount={getGroupTotal(grouped.others)} color="text-slate-600" bg="bg-white" onClick={() => scrollToSection("section-others")} />
           )}
+
           <SummaryCard title="📉 채무" amount={getGroupTotal(grouped.debt)} color="text-red-500" bg="bg-[rgba(254,242,242,0.6)]" isDebt onClick={() => scrollToSection("section-debt")} />
         </div>
 
         {/* 상세 리스트 */}
         {grouped.realEstate.length > 0 && <Section id="section-realestate" title="🏢 부동산" count={grouped.realEstate.length} total={getGroupTotal(grouped.realEstate)} formatMoney={formatMoney}>{grouped.realEstate.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
         {grouped.financial.length > 0 && <Section id="section-financial" title="💰 금융" count={grouped.financial.length} total={getGroupTotal(grouped.financial)} formatMoney={formatMoney}>{grouped.financial.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
+        
+        {/* ✅ 가상자산 섹션 추가 */}
+        {grouped.virtual.length > 0 && <Section id="section-virtual" title="🪙 가상자산" count={grouped.virtual.length} total={getGroupTotal(grouped.virtual)} formatMoney={formatMoney}>{grouped.virtual.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
+        
         {grouped.cars.length > 0 && <Section id="section-cars" title="🚗 자동차" count={grouped.cars.length} total={getGroupTotal(grouped.cars)} formatMoney={formatMoney}>{grouped.cars.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
         {grouped.others.length > 0 && <Section id="section-others" title="💎 기타" count={grouped.others.length} total={getGroupTotal(grouped.others)} formatMoney={formatMoney}>{grouped.others.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} />)}</Section>}
         {grouped.debt.length > 0 && <Section id="section-debt" title="📉 채무" count={grouped.debt.length} total={getGroupTotal(grouped.debt)} formatMoney={formatMoney} isDebt>{grouped.debt.map((item, idx) => <AssetRow key={idx} item={item} formatMoney={formatMoney} isDebt />)}</Section>}
