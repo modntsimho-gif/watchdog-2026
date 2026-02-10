@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import Image from "next/image";
@@ -62,7 +62,10 @@ type ViewType = "assembly" | "government";
 let cachedAssembly: Member[] | null = null;
 let cachedGovernment: Member[] | null = null;
 
-export default function Home() {
+// ------------------------------------------------------------------
+// 2. 메인 로직 컴포넌트 (useSearchParams 사용)
+// ------------------------------------------------------------------
+function HomeContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -74,7 +77,7 @@ export default function Home() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // ✅ [수정 1] 초기 탭 설정: 정부 모드면 'rank'(의전서열), 국회면 'total'(순자산)
+  // 초기 탭 설정: 정부 모드면 'rank'(의전서열), 국회면 'total'(순자산)
   const [activeTab, setActiveTab] = useState<TabType>(
     initialView === "government" ? "rank" : "total"
   );
@@ -84,10 +87,9 @@ export default function Home() {
   useEffect(() => {
     fetchData(viewType);
     fetchCommentCounts();
-    // useEffect 내부의 탭 리셋 로직은 제거함 (toggleViewType에서 처리)
   }, [viewType]);
 
-  // ✅ [수정 2] 모드 전환 시 탭 강제 변경
+  // 모드 전환 시 탭 강제 변경
   const toggleViewType = () => {
     const newType = viewType === "assembly" ? "government" : "assembly";
     setViewType(newType);
@@ -255,7 +257,7 @@ export default function Home() {
           };
         });
 
-        // 기본 정렬: 자산순 (데이터 로딩 직후에는 자산순으로 정렬해두고, 렌더링 시 activeTab에 따라 재정렬됨)
+        // 기본 정렬: 자산순
         processed.sort((a, b) => b.totalAssets - a.totalAssets);
         cachedGovernment = processed;
         setMembers(processed);
@@ -332,7 +334,7 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col items-center relative">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center relative">
       <Script
         async
         src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1019593213463092"
@@ -555,6 +557,23 @@ export default function Home() {
           </p>
         </div>
       </footer>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------
+// 3. 메인 페이지 (Suspense Wrapper)
+// ------------------------------------------------------------------
+export default function Home() {
+  return (
+    <main>
+      <Suspense fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="text-2xl animate-spin">⏳</div>
+        </div>
+      }>
+        <HomeContent />
+      </Suspense>
     </main>
   );
 }
