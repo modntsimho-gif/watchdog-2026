@@ -452,7 +452,8 @@ function HomeContent() {
                                 fill
                                 className="object-cover"
                                 sizes="64px"
-                                loading="lazy"
+                                loading="lazy"      
+                                unoptimized                          
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-3xl bg-slate-200 text-slate-400">
