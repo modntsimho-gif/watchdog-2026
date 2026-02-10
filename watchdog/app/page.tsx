@@ -63,7 +63,7 @@ let cachedAssembly: Member[] | null = null;
 let cachedGovernment: Member[] | null = null;
 
 // ------------------------------------------------------------------
-// 2. 메인 로직 컴포넌트 (useSearchParams 사용)
+// 2. 메인 로직 컴포넌트
 // ------------------------------------------------------------------
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -77,7 +77,7 @@ function HomeContent() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // 초기 탭 설정: 정부 모드면 'rank'(의전서열), 국회면 'total'(순자산)
+  // 초기 탭 설정
   const [activeTab, setActiveTab] = useState<TabType>(
     initialView === "government" ? "rank" : "total"
   );
@@ -89,14 +89,11 @@ function HomeContent() {
     fetchCommentCounts();
   }, [viewType]);
 
-  // 모드 전환 시 탭 강제 변경
+  // 모드 전환
   const toggleViewType = () => {
     const newType = viewType === "assembly" ? "government" : "assembly";
     setViewType(newType);
-    
-    // 정부로 가면 '의전서열', 국회로 가면 '순자산'을 기본으로 설정
     setActiveTab(newType === "government" ? "rank" : "total");
-
     router.replace(`/?view=${newType}`, { scroll: false });
   };
 
@@ -106,7 +103,6 @@ function HomeContent() {
 
     try {
       if (type === "assembly") {
-        // --- [국회의원 데이터] ---
         if (cachedAssembly) {
           setMembers(cachedAssembly);
           setLoading(false);
@@ -180,7 +176,6 @@ function HomeContent() {
         setMembers(processed);
 
       } else {
-        // --- [정부 공직자 데이터] ---
         if (cachedGovernment) {
            if (cachedGovernment.length > 0 && typeof cachedGovernment[0].originalIndex === 'number') {
             setMembers(cachedGovernment);
@@ -257,7 +252,6 @@ function HomeContent() {
           };
         });
 
-        // 기본 정렬: 자산순
         processed.sort((a, b) => b.totalAssets - a.totalAssets);
         cachedGovernment = processed;
         setMembers(processed);
@@ -284,10 +278,8 @@ function HomeContent() {
     }
   }
 
-  // ✅ 정렬 로직
   const sortedMembers = (() => {
     let sorted = [...members];
-    // 의전서열: originalIndex 오름차순
     if (activeTab === "rank") sorted.sort((a, b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0));
     else if (activeTab === "total") sorted.sort((a, b) => b.totalAssets - a.totalAssets);
     else if (activeTab === "realEstate") sorted.sort((a, b) => b.realEstate - a.realEstate);
@@ -324,7 +316,7 @@ function HomeContent() {
 
   const getDisplayValue = (member: Member) => {
     switch (activeTab) {
-      case "rank": return { label: "순자산 (서열)", value: member.totalAssets, icon: "⚖️" };
+      case "rank": return { label: "순자산 (의전서열)", value: member.totalAssets, icon: "⚖️" };
       case "realEstate": return { label: "부동산 자산", value: member.realEstate, icon: "🏢" };
       case "cars": return { label: "자동차 자산", value: member.cars, icon: "🚗" };
       case "financial": return { label: "현금성 자산", value: member.financial, icon: "💵" };
@@ -382,9 +374,8 @@ function HomeContent() {
           />
         </div>
         <div className="flex gap-2 overflow-x-auto w-full max-w-2xl justify-start sm:justify-center pb-2 sm:pb-0 scrollbar-hide px-2">
-          {/* 정부 공직자일 때만 '의전서열' 버튼 표시 */}
           {viewType === "government" && (
-            <button onClick={() => setActiveTab("rank")} className={getTabStyle("rank")}>서열 ⚖️</button>
+            <button onClick={() => setActiveTab("rank")} className={getTabStyle("rank")}>의전서열 ⚖️</button>
           )}
           <button onClick={() => setActiveTab("total")} className={getTabStyle("total")}>순자산 💰</button>
           <button onClick={() => setActiveTab("realEstate")} className={getTabStyle("realEstate")}>부동산 🏢</button>
@@ -398,7 +389,7 @@ function HomeContent() {
       <div className="w-full max-w-6xl p-4 sm:p-10 pb-10">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-800">
-            📊 {activeTab === "rank" ? "서열 순서" :
+            📊 {activeTab === "rank" ? "의전서열 순서" :
                 activeTab === "total" ? "전체 랭킹" : 
                 activeTab === "realEstate" ? "부동산 부자 순위" :
                 activeTab === "cars" ? "슈퍼카 순위" :
@@ -419,7 +410,6 @@ function HomeContent() {
               const commentCount = commentCounts[member.name] || 0;
               const hasComments = commentCount > 0;
 
-              // 정당/소속별 색상 바
               let barColor = 'bg-slate-500';
               if (viewType === "assembly") {
                 if (member.party.includes("국민의힘")) barColor = 'bg-red-600';
@@ -432,8 +422,11 @@ function HomeContent() {
 
               const rankValue = (member.originalIndex ?? index) + 1;
 
+              // ✅ [핵심 수정] 링크에 type 파라미터 추가 (?type=assembly or ?type=government)
+              const typeParam = member.isGov ? "government" : "assembly";
+
               return (
-                <Link href={`/member/${member.name}`} key={member.id} scroll={true}>
+                <Link href={`/member/${member.name}?type=${typeParam}`} key={member.id} scroll={true}>
                   <div className="rounded-xl border border-slate-200 bg-white text-slate-950 shadow-sm hover:shadow-xl transition-all overflow-hidden cursor-pointer group h-full flex flex-col">
                     <div className={`h-2 w-full ${barColor}`} />
                     

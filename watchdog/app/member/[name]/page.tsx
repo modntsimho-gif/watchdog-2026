@@ -3,6 +3,7 @@
 import { useState, useEffect, use, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import { useSearchParams } from "next/navigation"; // ✅ URL 파라미터 읽기 위해 추가
 
 // ✅ Supabase 설정
 const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
@@ -18,20 +19,20 @@ interface AssetItem {
   type: string;
   description: string;
   previous_value: number;
-  increase?: number; // 정부 데이터용
-  decrease?: number; // 정부 데이터용
+  increase?: number; 
+  decrease?: number; 
   current_value: number;
   reason: string;
 }
 
 interface MemberDetail {
   name: string;
-  party: string;    // 정당 또는 소속(정부)
-  district: string; // 지역구 또는 직위(정부)
+  party: string;    
+  district: string; 
   imageUrl: string;
   totalAssets: number;
   assets: AssetItem[];
-  isGov?: boolean; // 정부 공직자 여부 플래그
+  isGov?: boolean; 
 }
 
 interface GroupedAssets {
@@ -42,13 +43,11 @@ interface GroupedAssets {
   others: AssetItem[];
 }
 
-// 국회의원용
 interface RawAssetMember {
   name: string;
   assets: AssetItem[];
 }
 
-// 정부 공직자용
 interface GovOfficial {
   name: string;
   affiliation: string;
@@ -77,6 +76,8 @@ interface Comment {
 // --------------------
 export default function MemberDetail({ params }: { params: Promise<{ name: string }> }) {
   const { name } = use(params);
+  const searchParams = useSearchParams(); // ✅ 쿼리 파라미터 훅 사용
+  const typeParam = searchParams.get("type"); // 'assembly' or 'government'
   
   const [member, setMember] = useState<MemberDetail | null>(null);
   const [grouped, setGrouped] = useState<GroupedAssets>({
@@ -96,7 +97,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
     window.scrollTo(0, 0);
     async function fetchData() {
       try {
-        // 1. 모든 데이터 소스 병렬 로드
         const [assemblyRes, profilesRes, govRes] = await Promise.all([
           fetch("/assembly_assets.json"),
           fetch("/members_info.json"),
@@ -110,23 +110,36 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
         const rawGovData = await govRes.json();
         const rawGov: GovOfficial[] = Array.isArray(rawGovData) ? rawGovData : (rawGovData.officials || []);
 
-        // 2. 국회 데이터에서 검색
-        let targetAsset: any = rawAssembly.find((p) => p.name === decodedName);
-        let targetProfile = rawProfiles.find(
-          (p) => p.NAAS_NM === decodedName && p.STATUS_NM === "현직의원"
-        );
+        let targetAsset: any = null;
         let isGov = false;
 
-        // 3. 국회에 없으면 정부 데이터에서 검색
-        if (!targetAsset) {
+        // ✅ [핵심 로직 수정] type 파라미터에 따라 검색 대상 분리 (동명이인 해결)
+        if (typeParam === "government") {
+          // 정부 공직자만 검색
           targetAsset = rawGov.find((p) => p.name === decodedName);
-          if (targetAsset) {
-            isGov = true;
+          isGov = true;
+        } else if (typeParam === "assembly") {
+          // 국회의원만 검색
+          targetAsset = rawAssembly.find((p) => p.name === decodedName);
+          isGov = false;
+        } else {
+          // (기존 방식 fallback) 파라미터 없으면 국회 먼저 찾고 없으면 정부
+          targetAsset = rawAssembly.find((p) => p.name === decodedName);
+          if (!targetAsset) {
+            targetAsset = rawGov.find((p) => p.name === decodedName);
+            if (targetAsset) isGov = true;
           }
         }
 
+        // 프로필 정보 (국회의원인 경우만)
+        let targetProfile = null;
+        if (!isGov) {
+          targetProfile = rawProfiles.find(
+            (p) => p.NAAS_NM === decodedName && p.STATUS_NM === "현직의원"
+          );
+        }
+
         if (targetAsset) {
-          // --- 자산 그룹화 및 계산 로직 ---
           const groups: GroupedAssets = {
             realEstate: [],
             financial: [],
@@ -138,28 +151,22 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           let totalCalculated = 0;
 
           targetAsset.assets.forEach((item: AssetItem) => {
-            // 🚨 [중요] 현재가액 계산 로직 (정부 데이터 0원 방지)
             let currentValue = item.current_value;
-            
-            // current_value가 0이고, 증감 내역이 있다면 역산
             if (currentValue === 0 && (item.previous_value !== 0 || (item.increase || 0) !== 0)) {
               currentValue = item.previous_value + (item.increase || 0) - (item.decrease || 0);
             }
-            
-            // 계산된 값을 item에 덮어쓰기 (화면 표시용)
             item.current_value = currentValue;
 
             const t = item.type || "";
             const d = item.description || "";
 
-            // 자산 분류
             let category = "others";
             
             if (t.includes("채무") || d.includes("채무")) {
               category = "debt";
-              totalCalculated -= currentValue; // 부채는 차감
+              totalCalculated -= currentValue;
             } else {
-              totalCalculated += currentValue; // 자산은 합산
+              totalCalculated += currentValue;
               
               if (t.includes("자동차") || t.includes("승용차") || t.includes("선박")) {
                 category = "cars";
@@ -176,7 +183,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
               ) {
                 category = "realEstate";
               } else if (
-                t === "" || // 타입이 비어있으면 보통 예금
+                t === "" || 
                 t.includes("예금") || t.includes("증권") || t.includes("채권") || 
                 t.includes("회사채") || t.includes("국채") || t.includes("공채") ||
                 t.includes("현금") || t.includes("신탁") || t.includes("펀드") || 
@@ -191,7 +198,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
               }
             }
 
-            // 그룹에 추가
             if (category === "debt") groups.debt.push(item);
             else if (category === "cars") groups.cars.push(item);
             else if (category === "realEstate") groups.realEstate.push(item);
@@ -199,7 +205,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
             else groups.others.push(item);
           });
 
-          // 정렬 (금액 큰 순서)
           const sortByValue = (a: AssetItem, b: AssetItem) => b.current_value - a.current_value;
           groups.realEstate.sort(sortByValue);
           groups.financial.sort(sortByValue);
@@ -207,7 +212,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
           groups.debt.sort(sortByValue);
           groups.others.sort(sortByValue);
 
-          // 멤버 정보 설정
           setMember({
             name: targetAsset.name,
             party: isGov ? (targetAsset.affiliation || "정부") : (targetProfile?.PLPT_NM?.split("/").pop()?.trim() || "무소속"),
@@ -226,7 +230,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
       }
     }
     fetchData();
-  }, [decodedName]);
+  }, [decodedName, typeParam]); // ✅ typeParam이 변경되면 데이터를 다시 로드
 
   // 모달 스크롤 방지
   useEffect(() => {
@@ -268,7 +272,6 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
       <div className="bg-[rgba(255,255,255,0.95)] backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 shadow-sm">
         <div className="max-w-3xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between mb-2">
-            {/* 🚨 [수정됨] 뒤로가기 링크에 쿼리 파라미터 추가 */}
             <Link 
               href={member?.isGov ? "/?view=government" : "/?view=assembly"} 
               className="text-slate-500 hover:text-blue-600 text-sm font-medium flex items-center gap-1"
@@ -382,7 +385,7 @@ export default function MemberDetail({ params }: { params: Promise<{ name: strin
 }
 
 // --------------------
-// 🔥 3. Supabase 댓글 컴포넌트 (대댓글 기능 추가)
+// 🔥 3. Supabase 댓글 컴포넌트
 // --------------------
 function CommentSection({ memberName }: { memberName: string }) {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -390,7 +393,6 @@ function CommentSection({ memberName }: { memberName: string }) {
   const [form, setForm] = useState({ nickname: "", password: "", content: "" });
   const [submitting, setSubmitting] = useState(false);
   
-  // ✅ 대댓글 상태 추가
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -439,13 +441,13 @@ function CommentSection({ memberName }: { memberName: string }) {
           nickname: form.nickname,
           password: form.password,
           content: form.content,
-          parent_id: replyingTo ? replyingTo.id : null, // ✅ 부모 ID 저장
+          parent_id: replyingTo ? replyingTo.id : null,
         },
       ]);
 
       if (error) throw error;
       setForm({ ...form, content: "" });
-      setReplyingTo(null); // ✅ 전송 후 답글 모드 해제
+      setReplyingTo(null);
       await fetchComments();
     } catch (err) {
       console.error("댓글 작성 실패:", err);
@@ -455,7 +457,6 @@ function CommentSection({ memberName }: { memberName: string }) {
     }
   };
 
-  // ✅ 댓글 그룹화 (부모-자식 연결)
   const rootComments = comments.filter(c => !c.parent_id);
   const getReplies = (parentId: number) => comments.filter(c => c.parent_id === parentId);
 
@@ -484,7 +485,6 @@ function CommentSection({ memberName }: { memberName: string }) {
                       {new Date(comment.created_at).toLocaleDateString()} {new Date(comment.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                     </span>
                   </div>
-                  {/* ✅ 답글 버튼 */}
                   <button 
                     onClick={() => setReplyingTo(comment)}
                     className="text-xs text-blue-500 hover:text-blue-700 font-medium px-2 py-1 rounded hover:bg-blue-50 transition-colors"
@@ -497,7 +497,7 @@ function CommentSection({ memberName }: { memberName: string }) {
                 </p>
               </div>
 
-              {/* ✅ 대댓글 (들여쓰기) */}
+              {/* 대댓글 */}
               {getReplies(comment.id).map(reply => (
                 <div key={reply.id} className="flex gap-2 pl-2">
                   <div className="text-slate-300 text-lg">└</div>
@@ -523,7 +523,6 @@ function CommentSection({ memberName }: { memberName: string }) {
       {/* 2. 입력 폼 (고정 영역) */}
       <div className="flex-shrink-0 bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
         
-        {/* ✅ 답글 모드일 때 표시되는 알림바 */}
         {replyingTo && (
           <div className="bg-blue-50 px-4 py-2 flex items-center justify-between border-b border-blue-100">
             <span className="text-xs text-blue-700 font-medium truncate">
