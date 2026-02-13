@@ -5,47 +5,62 @@ import path from 'path';
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = 'https://ni-eolma.com';
 
-  // 1. 고정 페이지 (메인 페이지)
-  const staticRoutes = [
+  // 1. 고정 페이지 (메인, 개인정보처리방침 등)
+  const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: baseUrl,
       lastModified: new Date(),
-      changeFrequency: 'daily' as const,
+      changeFrequency: 'daily',
       priority: 1,
     },
-    // 개인정보처리방침 페이지가 있다면 추가 (없으면 이 부분 지우셔도 됩니다)
-    {
-      url: `${baseUrl}/privacy`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.5,
-    },
+    // 필요하다면 추가
+    // { url: `${baseUrl}/privacy`, lastModified: new Date(), ... },
   ];
 
-  // 2. 동적 페이지 (의원별 상세 페이지 자동 생성)
-  let memberRoutes: MetadataRoute.Sitemap = [];
+  let dynamicRoutes: MetadataRoute.Sitemap = [];
 
   try {
-    // public 폴더에 있는 JSON 파일을 서버에서 읽어옵니다.
-    const filePath = path.join(process.cwd(), 'public', 'assembly_assets.json');
-    const fileContents = await fs.readFile(filePath, 'utf8');
-    
-    // JSON 파싱 (타입은 name만 있으면 됩니다)
-    const members: { name: string }[] = JSON.parse(fileContents);
+    // 2. 파일 경로 설정 (public 폴더 내)
+    // ⚠️ 파일명이 실제 프로젝트와 일치하는지 꼭 확인하세요!
+    const assemblyPath = path.join(process.cwd(), 'public', 'assembly_assets.json');
+    const govPath = path.join(process.cwd(), 'public', 'officials_property.json'); 
 
-    // 의원 수만큼 URL 생성 (예: .../member/이재명)
-    memberRoutes = members.map((member) => ({
-      url: `${baseUrl}/member/${member.name}`,
+    // 3. 병렬로 파일 읽기 (속도 최적화)
+    const [assemblyData, govData] = await Promise.all([
+      fs.readFile(assemblyPath, 'utf8').catch(() => '[]'), // 파일 없으면 빈 배열 처리
+      fs.readFile(govPath, 'utf8').catch(() => '[]')
+    ]);
+
+    // 4. 데이터 파싱
+    const assemblyMembers: { name: string }[] = JSON.parse(assemblyData);
+    const rawGov = JSON.parse(govData);
+    // 공직자 데이터 구조가 배열인지 객체인지 확인 (안전장치)
+    const govMembers: { name: string }[] = Array.isArray(rawGov) ? rawGov : (rawGov.officials || []);
+
+    // 5. 국회의원 URL 생성 (?type=assembly)
+    const assemblyRoutes = assemblyMembers.map((member) => ({
+      // 한글 이름은 URL 인코딩 하는 것이 표준 (ex: %ED%99%8D...)
+      url: `${baseUrl}/member/${encodeURIComponent(member.name)}?type=assembly`,
       lastModified: new Date(),
-      changeFrequency: 'weekly' as const, // 재산 정보는 매일 바뀌진 않으므로 weekly
-      priority: 0.8, // 메인보다는 낮지만 꽤 중요함
+      changeFrequency: 'weekly' as const,
+      priority: 0.8,
     }));
 
+    // 6. 공직자 URL 생성 (?type=government)
+    const govRoutes = govMembers.map((member) => ({
+      url: `${baseUrl}/member/${encodeURIComponent(member.name)}?type=government`,
+      lastModified: new Date(),
+      changeFrequency: 'weekly' as const,
+      priority: 0.8,
+    }));
+
+    // 두 리스트 합치기
+    dynamicRoutes = [...assemblyRoutes, ...govRoutes];
+
   } catch (error) {
-    console.error('사이트맵 생성 중 파일 읽기 실패:', error);
-    // 에러가 나더라도 메인 페이지는 반환해야 함
+    console.error('사이트맵 생성 중 에러 발생:', error);
   }
 
-  // 고정 페이지와 의원 페이지를 합쳐서 반환
-  return [...staticRoutes, ...memberRoutes];
+  // 7. 최종 반환 (고정 + 동적)
+  return [...staticRoutes, ...dynamicRoutes];
 }
