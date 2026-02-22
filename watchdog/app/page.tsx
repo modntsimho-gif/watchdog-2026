@@ -4,14 +4,9 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import Image from "next/image";
-import { createClient } from "@supabase/supabase-js";
 import { useSearchParams, useRouter } from "next/navigation";
 
-// ✅ Supabase 설정
-const SUPABASE_URL = "https://aiohwgfgtpspiuphfwoz.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpb2h3Z2ZndHBzcGl1cGhmd296Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAyNzEyMDIsImV4cCI6MjA4NTg0NzIwMn0.GEzYz9YaLK8dbWs0dyY4jtiTb6IYl4IORcvQqUm2WWk";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// 🗑️ [삭제됨] Supabase 설정 및 클라이언트 초기화 코드 제거
 
 // --- 1. 데이터 인터페이스 정의 ---
 
@@ -46,7 +41,7 @@ interface Member {
   realEstate: number;
   cars: number;
   financial: number;
-  virtual: number; // ✅ 가상자산 추가
+  virtual: number; 
   debt: number;
 
   changeAmount: number; 
@@ -56,7 +51,7 @@ interface Member {
   originalIndex: number; 
 }
 
-// ✅ 탭 타입에 'virtual' 추가
+// 탭 타입
 type TabType = "total" | "realEstate" | "cars" | "financial" | "virtual" | "debt" | "rank";
 type ViewType = "assembly" | "government"; 
 
@@ -82,11 +77,11 @@ function HomeContent() {
     initialView === "government" ? "rank" : "total"
   );
   
-  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  // 🗑️ [삭제됨] commentCounts 상태 제거
 
   useEffect(() => {
     fetchData(viewType);
-    fetchCommentCounts();
+    // 🗑️ [삭제됨] fetchCommentCounts 호출 제거
   }, [viewType]);
 
   const toggleViewType = () => {
@@ -141,7 +136,6 @@ function HomeContent() {
               totalAssets += val;
               prevTotal += prev;
             } else if (t.includes("가상자산") || t.includes("암호화폐") || d.includes("가상자산")) {
-              // ✅ 가상자산 분류 로직
               virtual += val;
               totalAssets += val;
               prevTotal += prev;
@@ -218,7 +212,6 @@ function HomeContent() {
                 if (type.includes("자동차") || type.includes("승용차") || type.includes("선박")) {
                   cars += val;
                 } else if (type.includes("가상자산") || type.includes("암호화폐") || desc.includes("가상자산")) {
-                  // ✅ 정부 데이터 가상자산 분류
                   virtual += val;
                 } else if (
                   type.includes("토지") || type.includes("임야") || type.includes("대지") || 
@@ -272,21 +265,8 @@ function HomeContent() {
     }
   }
 
-  async function fetchCommentCounts() {
-    try {
-      const { data, error } = await supabase.from("comments").select("member_name");
-      if (error) throw error;
-      const counts: Record<string, number> = {};
-      data?.forEach((row) => {
-        counts[row.member_name] = (counts[row.member_name] || 0) + 1;
-      });
-      setCommentCounts(counts);
-    } catch (err) {
-      console.error("댓글 카운트 로딩 실패:", err);
-    }
-  }
+  // 🗑️ [삭제됨] fetchCommentCounts 함수 제거
 
-  // ✅ 정렬 로직에 virtual 추가
   const sortedMembers = (() => {
     let sorted = [...members];
     if (activeTab === "rank") sorted.sort((a, b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0));
@@ -294,7 +274,7 @@ function HomeContent() {
     else if (activeTab === "realEstate") sorted.sort((a, b) => b.realEstate - a.realEstate);
     else if (activeTab === "cars") sorted.sort((a, b) => b.cars - a.cars);
     else if (activeTab === "financial") sorted.sort((a, b) => b.financial - a.financial);
-    else if (activeTab === "virtual") sorted.sort((a, b) => b.virtual - a.virtual); // ✅ 코인 정렬
+    else if (activeTab === "virtual") sorted.sort((a, b) => b.virtual - a.virtual);
     else if (activeTab === "debt") sorted.sort((a, b) => b.debt - a.debt);
     return sorted;
   })();
@@ -330,7 +310,7 @@ function HomeContent() {
       case "realEstate": return { label: "부동산 자산", value: member.realEstate, icon: "🏢" };
       case "cars": return { label: "자동차 자산", value: member.cars, icon: "🚗" };
       case "financial": return { label: "현금성 자산", value: member.financial, icon: "💵" };
-      case "virtual": return { label: "가상자산 (코인)", value: member.virtual, icon: "🪙" }; // ✅ 표시 로직
+      case "virtual": return { label: "가상자산 (코인)", value: member.virtual, icon: "🪙" };
       case "debt": return { label: "총 부채", value: -member.debt, icon: "💸" };
       default: return { label: "순자산 (빚 제외)", value: member.totalAssets, icon: "💰" };
     }
@@ -420,8 +400,7 @@ function HomeContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredMembers.map((member, index) => {
               const display = getDisplayValue(member);
-              const commentCount = commentCounts[member.name] || 0;
-              const hasComments = commentCount > 0;
+              // 🗑️ [삭제됨] commentCount 변수 제거
 
               let barColor = 'bg-slate-500';
               if (viewType === "assembly") {
@@ -499,22 +478,7 @@ function HomeContent() {
                         </div>
                       )}
                       
-                      <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
-                        <div 
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                            hasComments 
-                              ? "bg-slate-800 text-white shadow-md scale-[1.02]" 
-                              : "bg-slate-100 text-slate-400"
-                          }`}
-                        >
-                          <span className={hasComments ? "animate-pulse" : ""}>
-                            {hasComments ? "🔥" : "💬"}
-                          </span>
-                          <span>
-                            {commentCount} Comments
-                          </span>
-                        </div>
-                      </div>
+                      {/* 🗑️ [삭제됨] 댓글 표시 UI 영역 제거 */}
 
                     </div>
                   </div>
